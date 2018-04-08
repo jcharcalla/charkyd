@@ -49,7 +49,7 @@ fi
 if [ -z "$HOSTID" ]
 then
 	HOSTID=$(openssl rand -hex 32)
-	echo ${HOSTID} > ${CONFIG}
+	echo "HOSTID=${HOSTID}" > ${CONFIG}
 fi
 
 # Register the host to etcd, use a TTL on the key
