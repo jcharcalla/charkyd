@@ -23,13 +23,13 @@ ETCDCTL_BIN=/usr/local/bin/etcdctl
 # putting these here for now, they should be in the config file
 REGION=region1
 RACK=rack1
-PREFIX_SCHEDULED=/legacy_services/namespace_1/scheduled
-PREFIX_RUNNING=/legacy_services/namespace_1/running
-PREFIX_PAUSED=/legacy_services/namespace_1/paused
-PREFIX_STATUS=/legacy_services/namespace_1/stauts
-PREFIX_TERMINATED=/legacy_services/namespace_1/terminated
-PREFIX_ERASED=/legacy_services/namespace_1/erased
-PREFIX_NODES=/legacy_services/namespace_1/nodes/
+PREFIX_SCHEDULED=/legacy_services/namespace_1/services/scheduled
+PREFIX_RUNNING=/legacy_services/namespace_1/services/running
+PREFIX_PAUSED=/legacy_services/namespace_1/services/paused
+PREFIX_STATUS=/legacy_services/namespace_1/services/stauts
+PREFIX_TERMINATED=/legacy_services/namespace_1/services/terminated
+PREFIX_ERASED=/legacy_services/namespace_1/services/erased
+PREFIX_NODES=/legacy_services/namespace_1/nodes
 
 
 FQDN=`nslookup $(hostname -f) | grep "Name:" | cut -d":" -f2 | xargs`

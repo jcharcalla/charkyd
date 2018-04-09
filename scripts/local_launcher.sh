@@ -13,6 +13,26 @@
 
 # example
 # etcd-v3.2.18-linux-amd64/etcdctl put /service/scheduled/region1/rack1/$(cat /etc/reporter.conf)/test_service1 \"replicas:1,type:ansible,source:playbook,opts:na,status:pending\"
+#
+#  ADD a service like this, ensure its in my ansible git repo
+#[root@localhost ~]# etcd-v3.2.18-linux-amd64/etcdctl del --prefix /legacy_services/namespace_1/
+#4
+#[root@localhost ~]# etcd-v3.2.18-linux-amd64/etcdctl get --prefix /legacy_services/namespace_1/
+#[root@localhost ~]# etcd-v3.2.18-linux-amd64/etcdctl put /legacy_services/namespace_1/services/scheduled/region1/rack1/$(cat /etc/reporter.conf| cut -d"=" -f2)/legacy_sample_service1 "servicename:legacy_sample_service1,unit_file:na,replicas:na,type:ansible,source:legacy_sample_service1.yml,opts:na,status:scheduled,state:enabled"
+#OK
+#[root@localhost ~]# etcd-v3.2.18-linux-amd64/etcdctl get --prefix /legacy_services/namespace_1/
+#/legacy_services/namespace_1/nodes/region1/rack1/64415328457e89160e30ce2fdd8f7b5a0420a5e9034027940dea8f754a4e4d85
+#"fqdn:localhost.charcalla.com,ipv4:127.0.0.1,ipv6:na,opts:na"
+#/legacy_services/namespace_1/nodes/region1/rack1/72d750f80c44b41fb1a368cbfe7e1318894c5293949b0485c20eaee99d996b31
+#"fqdn:localhost.charcalla.com,ipv4:127.0.0.1,ipv6:na,opts:na"
+#/legacy_services/namespace_1/nodes/region1/rack1/a41f74d9c1282180c51380b3690cc4f38627e715a41aae69b24fd6f0a813bbe3
+#"fqdn:localhost.charcalla.com,ipv4:127.0.0.1,ipv6:na,opts:na"
+#/legacy_services/namespace_1/services/scheduled/region1/rack1/a41f74d9c1282180c51380b3690cc4f38627e715a41aae69b24fd6f0a813bbe3/legacy_sample_service1
+#servicename:legacy_sample_service1,unit_file:na,replicas:na,type:ansible,source:legacy_sample_service1.yml,opts:na,status:scheduled,state:enabled
+#[root@localhost ~]# etcd-v3.2.18-linux-amd64/etcdctl get --prefix /legacy_services/namespace_1/services
+#/legacy_services/namespace_1/services/scheduled/region1/rack1/a41f74d9c1282180c51380b3690cc4f38627e715a41aae69b24fd6f0a813bbe3/legacy_sample_service1
+#servicename:legacy_sample_service1,unit_file:na,replicas:na,type:ansible,source:legacy_sample_service1.yml,opts:na,status:scheduled,state:enabled
+#
 
 # Prereqs:
 # openssl for hash gen
@@ -37,13 +57,13 @@ ANSIBLE_PLAYBOOK_BIN=/usr/bin/ansible-playbook
 # putting these here for now, they should be in the config file
 REGION=region1
 RACK=rack1
-PREFIX_SCHEDULED=/legacy_services/namespace_1/scheduled
-PREFIX_RUNNING=/legacy_services/namespace_1/running
-PREFIX_PAUSED=/legacy_services/namespace_1/paused
-PREFIX_STATUS=/legacy_services/namespace_1/stauts
-PREFIX_TERMINATED=/legacy_services/namespace_1/terminated
-PREFIX_ERASED=/legacy_services/namespace_1/erased
-
+PREFIX_SCHEDULED=/legacy_services/namespace_1/services/scheduled
+PREFIX_RUNNING=/legacy_services/namespace_1/services/running
+PREFIX_PAUSED=/legacy_services/namespace_1/services/paused
+PREFIX_STATUS=/legacy_services/namespace_1/services/stauts
+PREFIX_TERMINATED=/legacy_services/namespace_1/services/terminated
+PREFIX_ERASED=/legacy_services/namespace_1/services/erased
+PREFIX_NODES=/legacy_services/namespace_1/nodes
 
 FQDN=`nslookup $(hostname -f) | grep "Name:" | cut -d":" -f2 | xargs`
 IPV4=`nslookup $(hostname -f) | grep "Name:" -A1 | tail -n1 | cut -d":" -f2 | xargs`
@@ -103,7 +123,7 @@ build_service()
 
    # localy build / install service file, import image into docker / etc.
    # Need to somehow report this status to something... could change pending to failed and log output locally for retrival
-          ${ANSIBLE_PLAYBOOK_BIN} -i ${ANSIBLE_INVENTORY} ${SOURCE}
+          ${ANSIBLE_PLAYBOOK_BIN} ${SOURCE} --extra-vars ${SERVICENAME}
    # add service running que, marked as pending
          # etcd-v3.2.18-linux-amd64/etcdctl put /legacy_services/namespace_1/running/region1/rack1/a41f74d9c1282180c51380b3690cc4f38627e715a41aae69b24fd6f0a813bbe3/test_service2 "name:test_service2,replicas:1,type:ansible,source:playbook,opts:na,status:provisioned,state:enabled"
 	 ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_RUNNING}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME} \"servicename:${SERVICENAME},unit_file:${UNIT_FILE},replicas:${REPLICAS},type:${TYPE},source:${SOURCE},opts:${OPTIONS},status:provisioned,state:enabled\"
@@ -125,7 +145,7 @@ build_service()
 
 ### Check for pending services assigned to this specific node.
    # /service/scheduled/<region id>/<rack id>/<node id>/<service name>
-${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | grep pending| while read -r line; do echo ${line}; SERVICENAME=$(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2);NEWLINE=$(echo ${line} | sed 's/pending/provisioning/g'); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} ${NEWLINE}; echo ${NEWLINE}; echo build_service ; done
+${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | grep pending | while read -r line; do echo ${line}; SERVICENAME=$(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2);NEWLINE=$(echo ${line} | sed 's/pending/provisioning/g'); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} ${NEWLINE}; echo ${NEWLINE}; echo build_service ; done
 # get
 
    # put
