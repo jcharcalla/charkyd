@@ -145,7 +145,7 @@ build_service()
 
 ### Check for pending services assigned to this specific node.
    # /service/scheduled/<region id>/<rack id>/<node id>/<service name>
-${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | grep pending | while read -r line; do echo ${line}; SERVICENAME=$(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2);NEWLINE=$(echo ${line} | sed 's/pending/provisioning/g'); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} ${NEWLINE}; echo ${NEWLINE}; echo build_service ; done
+${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | grep scheduled | while read -r line; do echo ${line}; SERVICENAME=$(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2);NEWLINE=$(echo ${line} | sed 's/pending/provisioning/g'); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} ${NEWLINE}; echo ${NEWLINE}; echo build_service ; done
 # get
 
    # put
