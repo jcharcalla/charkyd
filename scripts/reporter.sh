@@ -1,10 +1,10 @@
 #
 # reporter.sh
 #
-# Reports node status to etcd V3
+# Reports node status to etcd V3 and restarts services if needed
 #
 # Author: Jason Charcalla
-# Copywrite 2018
+# Copyright 2018
 #
 
 # Prereqs:
@@ -15,7 +15,7 @@
 # v.1 initial version
 #
 
-# config options
+# config options (these should be stored as factors on the node)
 CONFIG=/etc/reporter.conf
 ETCD_ENDPOINTS="192.168.79.129:2379,192.168.79.177:2379,192.168.79.178:2379"
 export ETCDCTL_API=3
@@ -23,6 +23,13 @@ ETCDCTL_BIN=/usr/local/bin/etcdctl
 # putting these here for now, they should be in the config file
 REGION=region1
 RACK=rack1
+PREFIX_SCHEDULED=/legacy_services/namespace_1/scheduled
+PREFIX_RUNNING=/legacy_services/namespace_1/running
+PREFIX_PAUSED=/legacy_services/namespace_1/paused
+PREFIX_STATUS=/legacy_services/namespace_1/stauts
+PREFIX_TERMINATED=/legacy_services/namespace_1/terminated
+PREFIX_ERASED=/legacy_services/namespace_1/erased
+PREFIX_NODES=/legacy_services/namespace_1/nodes/
 
 
 FQDN=`nslookup $(hostname -f) | grep "Name:" | cut -d":" -f2 | xargs`
@@ -46,7 +53,7 @@ else
 fi
 
 # Check if we read the right variable
-if [ -z "$HOSTID" ]
+if [ -z ${HOSTID} ]
 then
 	HOSTID=$(openssl rand -hex 32)
 	echo "HOSTID=${HOSTID}" > ${CONFIG}
@@ -57,7 +64,7 @@ fi
 # /nodes/<region>/<rack>/${HOSTID}
 #echo "${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put /nodes/${REGION}/${RACK}/${HOSTID} \"fqdn:${FQDN},ipv4:${IPV4},ipv6:na\""
 # This should only update periodically to allow the scheuler to know the host is live. Needs a counter.
-${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put /nodes/${REGION}/${RACK}/${HOSTID} \"fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na\"
+${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_NODES}/${REGION}/${RACK}/${HOSTID} \"fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na\"
 
 # Function for reporting updates on current service status. this was planed to have a TTL, looks like that
 # is done as a lease now. No need to mess with that for the proof of concept.
@@ -65,7 +72,7 @@ report_service()
 {
 	# In reality this function should write to a counter somewhere so the put only occurs every Nth time.
 	# A lease should then be placed on the ket in etcd. this should limit traffic to every 5 to 10 minutes.
-	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put /service/status/${HOSTID}/${line} \"status:active,pid:na\"
+	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} \"service:${SERVICENAME},status:active,pid:na\"
 }
 
 # Function for starting missing services.
@@ -78,9 +85,15 @@ restart_service()
 	# ansible hook, this script is for monitoring of and automation around when things need to
 	# change
 
-	# systemctl start <service>
-	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put /service/status/${HOSTID}/${line} \"status:restarting,pid:na\"
+	systemctl restart ${SERVICENAME}
+	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} \"service:${SERVICENAME},status:restarting,pid:na\"
 }
+
+start_service()
+{
+        systemctl start ${SERVICENAME}
+        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} \"service:${SERVICENAME},status:starting,pid:na\"
+        }
 
 # Check for services I should be running
 # /service/running/${HOSTID}/<service name>
@@ -94,6 +107,9 @@ restart_service()
 # /service/status/${HOSTID}/<service name>
 #/tmp/etcd-v3.2.18-linux-amd64/etcdctl --endpoints=192.168.79.129:2379,192.168.79.177:2379,192.168.79.178:2379 get --prefix /services/running/f85c215ac6ee4e7d749df30adb986a2804977b3c057f553d29ff959a124efcab | grep enabled| while read -r line; do if [ "$(systemctl is-active $(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2))" = 'active' ]; then "submit function here" ;fi; done
 #
-${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix /services/running/${HOSTID} | grep enabled| while read -r line; do if [ "$(systemctl is-active $(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2))" = 'active' ]; then report_service; else restart_service ;fi; done
+${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix {PREFIX_RUNNING}/${REGION}/${RACK}/${HOSTID} | grep "state:enabled"| while read -r line; do if [ "$(systemctl is-active $(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2))" = 'active' ]; then SERVICENAME=$(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2); report_service; else restart_service ;fi; done
+
+ # Use a similar technique to stop services here
+ #  maybe short random sleep here.
 
 exit 0
