@@ -87,11 +87,12 @@ build_service()
    # if were ansible do stuff, if not tough shit.
    case $TYPE in
 	ansible|ANSIBLE|Ansible)
+
 	   echo "launching local ansible run"
 	   logger -i "lecgacy_builder: Building new service name:${SERVICENAME} via ${TYPE}"
 
    # update git repo.
-  	   cd $GIT_LOCAL_PATH && git pull
+  	   cd ${GIT_LOCAL_PATH} && git pull
    
    #wait
            sleep 10s
@@ -112,9 +113,9 @@ build_service()
    # if replica count is higher than 1 add it to a replicas key, or somehow have a key
 
    # remove from the scheduled service que, if all replicas are up.
-   	;;
-      *)
-
+   	 ;;
+       *)
+  esac
 }
 
 # Adjust sleep time based on how many services / resources we are using
@@ -124,7 +125,7 @@ build_service()
 
 ### Check for pending services assigned to this specific node.
    # /service/scheduled/<region id>/<rack id>/<node id>/<service name>
-${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | grep pending| while read -r line; do echo ${line}; SERVICENAME=$(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2);NEWLINE=$(echo ${line} | sed 's/pending/provisioning/g'); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} ${NEWLINE}; echo ${NEWLINE}; echo "Call deployer function here" ; done
+${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | grep pending| while read -r line; do echo ${line}; SERVICENAME=$(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2);NEWLINE=$(echo ${line} | sed 's/pending/provisioning/g'); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} ${NEWLINE}; echo ${NEWLINE}; echo build_service ; done
 # get
 
    # put
