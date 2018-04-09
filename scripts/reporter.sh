@@ -85,13 +85,15 @@ restart_service()
 	# ansible hook, this script is for monitoring of and automation around when things need to
 	# change
 
-	systemctl restart ${SERVICENAME}
+	#systemctl restart ${SERVICENAME}.service
+	systemctl stop ${SERVICENAME}.service
+	systemctl start ${SERVICENAME}.service
 	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} \"service:${SERVICENAME},status:restarting,pid:na\"
 }
 
 start_service()
 {
-        systemctl start ${SERVICENAME}
+        systemctl start ${SERVICENAME}.service
         ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} \"service:${SERVICENAME},status:starting,pid:na\"
         }
 
@@ -107,7 +109,7 @@ start_service()
 # /service/status/${HOSTID}/<service name>
 #/tmp/etcd-v3.2.18-linux-amd64/etcdctl --endpoints=192.168.79.129:2379,192.168.79.177:2379,192.168.79.178:2379 get --prefix /services/running/f85c215ac6ee4e7d749df30adb986a2804977b3c057f553d29ff959a124efcab | grep enabled| while read -r line; do if [ "$(systemctl is-active $(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2))" = 'active' ]; then "submit function here" ;fi; done
 #
-${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix {PREFIX_RUNNING}/${REGION}/${RACK}/${HOSTID} | grep "state:enabled"| while read -r line; do if [ "$(systemctl is-active $(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2))" = 'active' ]; then SERVICENAME=$(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2); report_service; else restart_service ;fi; done
+${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_RUNNING}/${REGION}/${RACK}/${HOSTID} | grep "state:enabled"| while read -r line; do if [ "$(systemctl is-active $(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2))" = 'active' ]; then SERVICENAME=$(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2); report_service; else SERVICENAME=$(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2); restart_service ;fi; done
 
  # Use a similar technique to stop services here
  #  maybe short random sleep here.

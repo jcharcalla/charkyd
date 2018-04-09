@@ -123,10 +123,10 @@ build_service()
 
    # localy build / install service file, import image into docker / etc.
    # Need to somehow report this status to something... could change pending to failed and log output locally for retrival
-          ${ANSIBLE_PLAYBOOK_BIN} ${SOURCE} --extra-vars ${SERVICENAME}
+          ${ANSIBLE_PLAYBOOK_BIN} ${ANSIBLE_PLAYBOOK_PATH}${SOURCE} --extra-vars "legacy_servicename=${SERVICENAME}"
    # add service running que, marked as pending
          # etcd-v3.2.18-linux-amd64/etcdctl put /legacy_services/namespace_1/running/region1/rack1/a41f74d9c1282180c51380b3690cc4f38627e715a41aae69b24fd6f0a813bbe3/test_service2 "name:test_service2,replicas:1,type:ansible,source:playbook,opts:na,status:provisioned,state:enabled"
-	 ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_RUNNING}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME} \"servicename:${SERVICENAME},unit_file:${UNIT_FILE},replicas:${REPLICAS},type:${TYPE},source:${SOURCE},opts:${OPTIONS},status:provisioned,state:enabled\"
+	 ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_RUNNING}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME} servicename:${SERVICENAME},unit_file:${UNIT_FILE},replicas:${REPLICAS},type:${TYPE},source:${SOURCE},opts:${OPTIONS},status:provisioned,state:enabled
 
    # wait for initaial statu entry from reporter (needs new name) service
 
@@ -145,7 +145,7 @@ build_service()
 
 ### Check for pending services assigned to this specific node.
    # /service/scheduled/<region id>/<rack id>/<node id>/<service name>
-${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | grep scheduled | while read -r line; do echo ${line}; SERVICENAME=$(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2);NEWLINE=$(echo ${line} | sed 's/pending/provisioning/g'); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} ${NEWLINE}; echo ${NEWLINE}; echo build_service ; done
+${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | grep scheduling | while read -r line; do echo ${line}; SERVICENAME=$(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2);NEWLINE=$(echo ${line} | sed 's/scheduling/provisioning/g'); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} ${NEWLINE}; echo "newline=${NEWLINE}"; echo "servicename=${SERVICENAME}" ; build_service ; done
 # get
 
    # put
