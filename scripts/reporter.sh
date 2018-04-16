@@ -34,7 +34,11 @@ PREFIX_NODES=/legacy_services/namespace_1/nodes
 
 # I need some logic to define the availible resources on this node
 # to report them back to the DB, also keep track of availible resources
-
+NUMPROC=$(nproc --all)
+TOTMEM=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+# I know, math this way rounds down to the nearest GB. Which probacly
+# isnt a bad thing
+TOTMEM=$((TOTMEM/102400))
 
 FQDN=`nslookup $(hostname -f) | grep "Name:" | cut -d":" -f2 | xargs`
 IPV4=`nslookup $(hostname -f) | grep "Name:" -A1 | tail -n1 | cut -d":" -f2 | xargs`
@@ -68,7 +72,7 @@ fi
 # /nodes/<region>/<rack>/${HOSTID}
 #echo "${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put /nodes/${REGION}/${RACK}/${HOSTID} \"fqdn:${FQDN},ipv4:${IPV4},ipv6:na\""
 # This should only update periodically to allow the scheuler to know the host is live. Needs a counter.
-${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_NODES}/${REGION}/${RACK}/${HOSTID} \"fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na\"
+${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_NODES}/${REGION}/${RACK}/${HOSTID} \"fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,numproc:${NUMPROC},totmem:${TOTMEM}\"
 
 # Function for reporting updates on current service status. this was planed to have a TTL, looks like that
 # is done as a lease now. No need to mess with that for the proof of concept.
