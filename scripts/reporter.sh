@@ -26,10 +26,14 @@ RACK=rack1
 PREFIX_SCHEDULED=/legacy_services/namespace_1/services/scheduled
 PREFIX_RUNNING=/legacy_services/namespace_1/services/running
 PREFIX_PAUSED=/legacy_services/namespace_1/services/paused
+PREFIX_MONITOR=/legacy_services/namespace_1/services/monitor
 PREFIX_STATUS=/legacy_services/namespace_1/services/stauts
 PREFIX_TERMINATED=/legacy_services/namespace_1/services/terminated
 PREFIX_ERASED=/legacy_services/namespace_1/services/erased
 PREFIX_NODES=/legacy_services/namespace_1/nodes
+
+# I need some logic to define the availible resources on this node
+# to report them back to the DB, also keep track of availible resources
 
 
 FQDN=`nslookup $(hostname -f) | grep "Name:" | cut -d":" -f2 | xargs`
@@ -73,6 +77,8 @@ report_service()
 	# In reality this function should write to a counter somewhere so the put only occurs every Nth time.
 	# A lease should then be placed on the ket in etcd. this should limit traffic to every 5 to 10 minutes.
 	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} \"service:${SERVICENAME},status:active,pid:na\"
+	# get a list of all the monitor nodes cuttently watching this service and verify they are still 3 and if the time stamp is too old
+	# select a new node from the nodes list to monitor.
 }
 
 # Function for starting missing services.

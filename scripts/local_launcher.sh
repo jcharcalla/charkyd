@@ -60,7 +60,8 @@ RACK=rack1
 PREFIX_SCHEDULED=/legacy_services/namespace_1/services/scheduled
 PREFIX_RUNNING=/legacy_services/namespace_1/services/running
 PREFIX_PAUSED=/legacy_services/namespace_1/services/paused
-PREFIX_STATUS=/legacy_services/namespace_1/services/stauts
+PREFIX_MONITOR=/legacy_services/namespace_1/services/monitor
+PREFIX_STATUS=/legacy_services/namespace_1/services/status
 PREFIX_TERMINATED=/legacy_services/namespace_1/services/terminated
 PREFIX_ERASED=/legacy_services/namespace_1/services/erased
 PREFIX_NODES=/legacy_services/namespace_1/nodes
@@ -106,6 +107,10 @@ build_service()
 
    # if were ansible do stuff, if not tough shit.
    case $TYPE in
+	bash|BASH|Bash)
+	   ;;
+	puppet|PUPPET|Puppet)
+	   ;;
 	ansible|ANSIBLE|Ansible)
 
 	   echo "launching local ansible run"
@@ -130,9 +135,14 @@ build_service()
 
    # wait for initaial statu entry from reporter (needs new name) service
 
-   # if replica count is higher than 1 add it to a replicas key, or somehow have a key
+   # if replica count is higher than 1 add it to a replicas key, or somehow have a key - actually let the monitor nodes deal with it
+   # 
+   # select 3 nodes to be monitors from the availible nodes list, could be in the rack / region area 
 
    # remove from the scheduled service que, if all replicas are up.
+   #
+   
+   # Select 3 hosts to monitor this service
    	 ;;
        *)
   esac
