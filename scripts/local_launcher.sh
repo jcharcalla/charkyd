@@ -57,6 +57,7 @@ ANSIBLE_PLAYBOOK_BIN=/usr/bin/ansible-playbook
 # putting these here for now, they should be in the config file
 REGION=region1
 RACK=rack1
+UUID_LENGTH=12
 PREFIX_SCHEDULED=/legacy_services/namespace_1/services/scheduled
 PREFIX_RUNNING=/legacy_services/namespace_1/services/running
 PREFIX_PAUSED=/legacy_services/namespace_1/services/paused
@@ -81,7 +82,7 @@ IPV4=`nslookup $(hostname -f) | grep "Name:" -A1 | tail -n1 | cut -d":" -f2 | xa
 
 if [ ! -f ${CONFIG} ]
 then
-        echo "HOSTID=$(openssl rand -hex 32)" > ${CONFIG}
+        echo "HOSTID=$(openssl rand -hex ${UUID_LENGTH})" > ${CONFIG}
 else
         source ${CONFIG}
 fi
@@ -89,7 +90,7 @@ fi
 # Check if we read the right variable
 if [ -z ${HOSTID} ]
 then
-        HOSTID=$(openssl rand -hex 32)
+        HOSTID=$(openssl rand -hex ${UUID_LENGTH})
         echo "HOSTID=${HOSTID}" > ${CONFIG}
 fi
 

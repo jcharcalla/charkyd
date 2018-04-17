@@ -23,6 +23,7 @@ ETCDCTL_BIN=/usr/local/bin/etcdctl
 # putting these here for now, they should be in the config file
 REGION=region1
 RACK=rack1
+UUID_LENGTH=12
 PREFIX_SCHEDULED=/legacy_services/namespace_1/services/scheduled
 PREFIX_RUNNING=/legacy_services/namespace_1/services/running
 PREFIX_PAUSED=/legacy_services/namespace_1/services/paused
@@ -55,7 +56,7 @@ IPV4=`nslookup $(hostname -f) | grep "Name:" -A1 | tail -n1 | cut -d":" -f2 | xa
 
 if [ ! -f ${CONFIG} ]
 then
-	echo "HOSTID=$(openssl rand -hex 32)" > ${CONFIG}
+	echo "HOSTID=$(openssl rand -hex ${UUID_LENGTH})" > ${CONFIG}
 else
 	source ${CONFIG}
 fi
@@ -63,7 +64,7 @@ fi
 # Check if we read the right variable
 if [ -z ${HOSTID} ]
 then
-	HOSTID=$(openssl rand -hex 32)
+	HOSTID=$(openssl rand -hex ${UUID_LENGTH})
 	echo "HOSTID=${HOSTID}" > ${CONFIG}
 fi
 
@@ -72,6 +73,11 @@ fi
 # /nodes/<region>/<rack>/${HOSTID}
 #echo "${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put /nodes/${REGION}/${RACK}/${HOSTID} \"fqdn:${FQDN},ipv4:${IPV4},ipv6:na\""
 # This should only update periodically to allow the scheuler to know the host is live. Needs a counter.
+
+#
+# I could for giggles encrypt the values i send, thus requiring all nodes to know a secret...
+# Or I could use etcd roles.
+#
 ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_NODES}/${REGION}/${RACK}/${HOSTID} \"fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,numproc:${NUMPROC},totmem:${TOTMEM}\"
 
 # Function for reporting updates on current service status. this was planed to have a TTL, looks like that
@@ -106,6 +112,14 @@ start_service()
         systemctl start ${SERVICENAME}.service
         ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} \"service:${SERVICENAME},status:starting,pid:na\"
         }
+
+enable_watchers()
+{
+	# Find three availible nodes to watch me
+
+	# Notify the nodes in a loop
+	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_MONITOR}/${REGION}/${RACK}/${WATCH_HOSTID}/${SERVICENAME} \"service:${SERVICENAME},node:${HOSTID},pid:na\"
+}
 
 # Check for services I should be running
 # /service/running/${HOSTID}/<service name>
