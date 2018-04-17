@@ -17,7 +17,7 @@
 
 # config options (these should be stored as factors on the node)
 CONFIG=/etc/reporter.conf
-ETCD_ENDPOINTS="192.168.79.129:2379,192.168.79.177:2379,192.168.79.178:2379"
+ETCD_ENDPOINTS="192.168.79.61:2379,192.168.79.62:2379,192.168.79.63:2379"
 export ETCDCTL_API=3
 ETCDCTL_BIN=/usr/local/bin/etcdctl
 # putting these here for now, they should be in the config file
@@ -28,11 +28,14 @@ PREFIX_SCHEDULED=/legacy_services/namespace_1/services/scheduled
 PREFIX_RUNNING=/legacy_services/namespace_1/services/running
 PREFIX_PAUSED=/legacy_services/namespace_1/services/paused
 PREFIX_MONITOR=/legacy_services/namespace_1/services/monitor
-PREFIX_STATUS=/legacy_services/namespace_1/services/stauts
+PREFIX_STATUS=/legacy_services/namespace_1/services/status
 PREFIX_TERMINATED=/legacy_services/namespace_1/services/terminated
 PREFIX_ERASED=/legacy_services/namespace_1/services/erased
 PREFIX_NODES=/legacy_services/namespace_1/nodes
+MONITOR_MIN=3
+MONITOR_ELECTS=1
 
+EPOCH=$(date +%s)
 # I need some logic to define the availible resources on this node
 # to report them back to the DB, also keep track of availible resources
 NUMPROC=$(nproc --all)
@@ -78,15 +81,30 @@ fi
 # I could for giggles encrypt the values i send, thus requiring all nodes to know a secret...
 # Or I could use etcd roles.
 #
-${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_NODES}/${REGION}/${RACK}/${HOSTID} \"fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,numproc:${NUMPROC},totmem:${TOTMEM}\"
+${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_NODES}/${REGION}/${RACK}/${HOSTID} nodeid:${HOSTID},fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,numproc:${NUMPROC},totmem:${TOTMEM},epoch:${EPOCH}
+
+elect_monitor()
+{
+        for i in $(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_NODES} | grep nodeid | sort -R | head -n${MONITOR_ELECTS} | cut -d "," -f1 | cut -d ":" -f 2);
+                do EPOCH=$(date +%s); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_MONITOR}/${REGION}/${RACK}/${i}/${SERVICENAME} servicename:${SERVICENAME},unit_file:${UNIT_FILE},replicas:${REPLICAS},nodeid:${HOSTID},epoch:${EPOCH};
+        done
+}
 
 # Function for reporting updates on current service status. this was planed to have a TTL, looks like that
 # is done as a lease now. No need to mess with that for the proof of concept.
 report_service()
 {
+	# see if this service is being whatched by at least n number
+	#etcd-v3.2.18-linux-amd64/etcdctl get --prefix /legacy_services/namespace_1/services/monitor/region1/rack1/ | grep servicename | grep legacy_sample_service10 | wc -l
+	MONITORS_RUNNING=$(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_MONITOR}/${REGION}/${RACK}/| grep servicename | grep ${SERVICENAME} | wc -l)
+	if [ ${MONITORS_RUNNING} -lt ${MONITOR_MIN} ]
+	then
+		# elect a new monitor node to watch this service.
+		elect_monitor
+	fi
 	# In reality this function should write to a counter somewhere so the put only occurs every Nth time.
 	# A lease should then be placed on the ket in etcd. this should limit traffic to every 5 to 10 minutes.
-	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} \"service:${SERVICENAME},status:active,pid:na\"
+	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:active,pid:na,nodeid:${HOSTID},epoch:${EPOCH}
 	# get a list of all the monitor nodes cuttently watching this service and verify they are still 3 and if the time stamp is too old
 	# select a new node from the nodes list to monitor.
 }
@@ -104,22 +122,16 @@ restart_service()
 	#systemctl restart ${SERVICENAME}.service
 	systemctl stop ${SERVICENAME}.service
 	systemctl start ${SERVICENAME}.service
-	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} \"service:${SERVICENAME},status:restarting,pid:na\"
+	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:restarting,pid:nai,nodeid:${HOSTID},epoch:${EPOCH}
 }
 
 start_service()
 {
         systemctl start ${SERVICENAME}.service
-        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} \"service:${SERVICENAME},status:starting,pid:na\"
+        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:starting,pid:na,nodeid:${HOSTID},epoch:${EPOCH}
         }
 
-enable_watchers()
-{
-	# Find three availible nodes to watch me
 
-	# Notify the nodes in a loop
-	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_MONITOR}/${REGION}/${RACK}/${WATCH_HOSTID}/${SERVICENAME} \"service:${SERVICENAME},node:${HOSTID},pid:na\"
-}
 
 # Check for services I should be running
 # /service/running/${HOSTID}/<service name>
