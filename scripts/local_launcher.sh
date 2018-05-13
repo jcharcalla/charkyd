@@ -102,8 +102,16 @@ fi
 # function for if a new service is found.
 build_service()
 {
+
+   #SERVICE_UUID=$(openssl rand -hex ${SERVICE_UUID_LENGTH}); SERVICENAME=$(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2)_${SERVICE_UUID};NEWLINE=$(echo ${line} | sed 's/scheduling/provisioning/g'); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} ${NEWLINE};
    # Gather variables, yep this should be some awk foo! Or some better json way
-   SERVICENAME=${SERVICENAME}
+   #I though about changing the name here, but that would require another queu
+   # or the elect monitor moving to the reporter script
+   ### Problem is if i change the name how do you know what you called it?
+   # I could replace the name, or i could write it to the schduled queue as newname for refrence
+   #SERVICENAME=${SERVICENAME}
+   SERVICENAME=$(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2)
+   #_$(openssl rand -hex ${SERVICE_UUID_LENGTH})
    UNIT_FILE=$(echo ${line} | cut -d "," -f 2 | cut -d ":" -f2)
    REPLICAS=$(echo ${line} | cut -d "," -f 3 | cut -d ":" -f2)
    TYPE=$(echo ${line} | cut -d "," -f 4 | cut -d ":" -f2)
@@ -111,7 +119,11 @@ build_service()
    OPTIONS=$(echo ${line} | cut -d "," -f 6 | cut -d ":" -f2)
 
 
-elect_monitor
+   # Update status, maybe rename via delete
+   NEWLINE=$(echo ${line} | sed 's/scheduling/provisioning/g')
+   ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} ${NEWLINE};
+
+#elect_monitor
 
    # If we dont have enough resources, lets just start a watcher and let another node take it.
 
@@ -142,7 +154,7 @@ elect_monitor
           ${ANSIBLE_PLAYBOOK_BIN} ${ANSIBLE_PLAYBOOK_PATH}${SOURCE} --extra-vars "legacy_servicename=${SERVICENAME}"
    # add service running que, marked as pending
          # etcd-v3.2.18-linux-amd64/etcdctl put /legacy_services/namespace_1/running/region1/rack1/a41f74d9c1282180c51380b3690cc4f38627e715a41aae69b24fd6f0a813bbe3/test_service2 "name:test_service2,replicas:1,type:ansible,source:playbook,opts:na,status:provisioned,state:enabled"
-	 ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_RUNNING}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME} servicename:${SERVICENAME},unit_file:${UNIT_FILE},replicas:${REPLICAS},type:${TYPE},source:${SOURCE},opts:${OPTIONS},status:provisioned,state:enabled,epoch:${EPOCH}
+	 ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_RUNNING}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} servicename:${SERVICENAME},unit_file:${UNIT_FILE},replicas:${REPLICAS},type:${TYPE},source:${SOURCE},opts:${OPTIONS},status:provisioned,state:enabled,epoch:${EPOCH}
 
    # wait for initaial statu entry from reporter (needs new name) service
 
@@ -169,7 +181,7 @@ elect_monitor
 
 ### Check for pending services assigned to this specific node.
    # /service/scheduled/<region id>/<rack id>/<node id>/<service name>
-   ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | grep scheduling | while read -r line; do echo ${line}; SERVICE_UUID=$(openssl rand -hex ${SERVICE_UUID_LENGTH}); SERVICENAME=$(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2)${SERVICE_UUID};NEWLINE=$(echo ${line} | sed 's/scheduling/provisioning/g'); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} ${NEWLINE}; echo "newline=${NEWLINE}"; echo "servicename=${SERVICENAME}" ; build_service ; done
+   ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | grep scheduling | while read -r line; do build_service ; done
 # get
 
    # put
