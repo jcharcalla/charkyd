@@ -31,12 +31,12 @@ API_VERSION=v1
 NAMESPACE=cluster1
 NODE_LEASE_TTL=30
 PREFIX_SCHEDULED=/charkyd/${API_VERSION}/${NAMESPACE}/services/scheduled
-PREFIX_RUNNING=/charkyd/${API_VERSION}/${NAMESPACE}/services/running
-PREFIX_PAUSED=/charkyd/${API_VERSION}/${NAMESPACE}/services/paused
+#PREFIX_RUNNING=/charkyd/${API_VERSION}/${NAMESPACE}/services/running
+#PREFIX_PAUSED=/charkyd/${API_VERSION}/${NAMESPACE}/services/paused
 PREFIX_MONITOR=/charkyd/${API_VERSION}/${NAMESPACE}/services/monitor
 PREFIX_STATUS=/charkyd/${API_VERSION}/${NAMESPACE}/services/status
-PREFIX_TERMINATED=/charkyd/${API_VERSION}/${NAMESPACE}/services/terminated
-PREFIX_ERASED=/charkyd/${API_VERSION}/${NAMESPACE}/services/erased
+#PREFIX_TERMINATED=/charkyd/${API_VERSION}/${NAMESPACE}/services/terminated
+#PREFIX_ERASED=/charkyd/${API_VERSION}/${NAMESPACE}/services/erased
 PREFIX_NODES=/charkyd/${API_VERSION}/${NAMESPACE}/nodes
 MONITOR_MIN=3
 MONITOR_ELECTS=1
@@ -108,9 +108,59 @@ fi
 
 
 # check if something should be running or what state it should be in
+restart_service()
+{
+        systemctl restart ${SERVICENAME}.service
+        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:restarted,pid:na,nodeid:${HOSTID},epoch:${EPOCH}
+}
+
+start_service()
+{
+        systemctl start ${SERVICENAME}.service
+        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:started,pid:na,nodeid:${HOSTID},epoch:${EPOCH}
+        }
+
+stop_service()
+{
+        systemctl stop ${SERVICENAME}.service
+        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:stopped,pid:na,nodeid:${HOSTID},epoch:${EPOCH}
+        }
+
 
 # Report current state of all
 #
 # write to a tmp file in /dev/shm
 # diff the 2 files
 # update only thoughs that have changed.
+# | sed 's/.*state://' | cut -d "," -f1
+
+#
+#
+#
+
+#${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_RUNNING}/${REGION}/${RACK}/${HOSTID} | grep "enabled:yes"| while read -r line
+${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | while read -r line
+do 
+	DESIRED_SERVICE_STATE=$(echo ${line} | sed 's/.*state://' | cut -d "," -f1)
+	SERVICENAME=$(echo ${line} | | sed 's/.*servicename://' | cut -d "," -f1)
+   	case ${DESIERED_SERVICE_STATE} in
+	   started|STARTED|running)
+		if [ "$(systemctl is-active ${SERVICENAME})" != 'active' ];
+		then 
+			# SERVICENAME=$(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2)
+			# | sed 's/.*state://' | cut -d "," -f1
+			restart_service 
+		fi
+	  ;;
+  	  stopped|STOPPED|disabled)
+		stop_service
+	  ;;
+  	  restart|RESTART|restarted|RESTARTED)
+		restart_service
+	  ;;
+  	*)
+
+done
+
+
+exit 0
