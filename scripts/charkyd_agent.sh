@@ -110,35 +110,30 @@ fi
 # check if something should be running or what state it should be in
 restart_service()
 {
+	logger -i "charkyd_agent: Service :${SERVICENAME} attempting restart."
         systemctl restart ${SERVICENAME}.service
         ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:restarted,pid:na,nodeid:${HOSTID},epoch:${EPOCH}
 }
 
 start_service()
 {
+	logger -i "charkyd_agent: Service :${SERVICENAME} attempting start."
         systemctl start ${SERVICENAME}.service
         ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:started,pid:na,nodeid:${HOSTID},epoch:${EPOCH}
         }
 
 stop_service()
 {
+	logger -i "charkyd_agent: Service :${SERVICENAME} attempting stop."
         systemctl stop ${SERVICENAME}.service
         ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:stopped,pid:na,nodeid:${HOSTID},epoch:${EPOCH}
         }
 
 
-# Report current state of all
 #
-# write to a tmp file in /dev/shm
-# diff the 2 files
-# update only thoughs that have changed.
-# | sed 's/.*state://' | cut -d "," -f1
-
-#
-#
+# This is where we check and update the status of the local service
 #
 
-#${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_RUNNING}/${REGION}/${RACK}/${HOSTID} | grep "enabled:yes"| while read -r line
 ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | while read -r line
 do 
 	DESIRED_SERVICE_STATE=$(echo ${line} | sed 's/.*state://' | cut -d "," -f1)
@@ -147,8 +142,6 @@ do
 	   started|STARTED|running)
 		if [ "$(systemctl is-active ${SERVICENAME})" != 'active' ];
 		then 
-			# SERVICENAME=$(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2)
-			# | sed 's/.*state://' | cut -d "," -f1
 			restart_service 
 		fi
 	  ;;
@@ -158,6 +151,8 @@ do
   	  restart|RESTART|restarted|RESTARTED)
 		restart_service
 	  ;;
+          scheduled|SCHEDULED)
+	  	logger -i "charkyd_agent: Scheduled service:${SERVICENAME} not yet deployed."
   	*)
 
 done
