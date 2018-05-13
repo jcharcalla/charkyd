@@ -78,9 +78,14 @@ fi
 # This should only update periodically to allow the scheuler to know the host is live. Needs a counter.
 
 #
+# Create a etcd lease and store it's value in /dev/shm somewhere
+#
+
+#
 # I could for giggles encrypt the values i send, thus requiring all nodes to know a secret...
 # Or I could use etcd roles.
 #
+# Link this to the lease, thus negating the need to report it every time or use the epoch
 ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_NODES}/${REGION}/${RACK}/${HOSTID} nodeid:${HOSTID},fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,numproc:${NUMPROC},totmem:${TOTMEM},epoch:${EPOCH},arch:x86_64
 
 elect_monitor()
@@ -96,6 +101,8 @@ report_service()
 {
 	# see if this service is being whatched by at least n number
 	#etcd-v3.2.18-linux-amd64/etcdctl get --prefix /legacy_services/namespace_1/services/monitor/region1/rack1/ | grep servicename | grep legacy_sample_service10 | wc -l
+	# I keep thinkking this monitoring thing should be a completly seperate service, and when it sees a newly running service
+	# locally then it elects the monitors serices.
 	MONITORS_RUNNING=$(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_MONITOR}/${REGION}/${RACK}/| grep servicename | grep ${SERVICENAME} | wc -l)
 	if [ ${MONITORS_RUNNING} -lt ${MONITOR_MIN} ]
 	then
@@ -104,6 +111,9 @@ report_service()
 	fi
 	# In reality this function should write to a counter somewhere so the put only occurs every Nth time.
 	# A lease should then be placed on the ket in etcd. this should limit traffic to every 5 to 10 minutes.
+	#
+	# This needs an initial is running report and lease generated. then it should only change between running, stopped, paused, and failed.
+	# the update of the lease would be done here instead of updating the key
 	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:active,pid:na,nodeid:${HOSTID},epoch:${EPOCH}
 	# get a list of all the monitor nodes cuttently watching this service and verify they are still 3 and if the time stamp is too old
 	# select a new node from the nodes list to monitor.
@@ -131,6 +141,12 @@ start_service()
         ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:starting,pid:na,nodeid:${HOSTID},epoch:${EPOCH}
         }
 
+stop_service()
+{
+        systemctl stop ${SERVICENAME}.service
+        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:stopping,pid:na,nodeid:${HOSTID},epoch:${EPOCH}
+        }
+
 
 
 # Check for services I should be running
@@ -148,6 +164,9 @@ start_service()
 ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_RUNNING}/${REGION}/${RACK}/${HOSTID} | grep "state:enabled"| while read -r line; do if [ "$(systemctl is-active $(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2))" = 'active' ]; then SERVICENAME=$(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2); restart_service; else SERVICENAME=$(echo ${line} | cut -d "," -f 1 | cut -d ":" -f2); report_service ;fi; done
 
  # Use a similar technique to stop services here
- #  maybe short random sleep here.
+ #  maybe short random sleep here.A
+
+
+ # If everything was happy update the lease associated with this machine.
 
 exit 0
