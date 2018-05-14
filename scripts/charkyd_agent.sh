@@ -97,7 +97,7 @@ else
 		# refresh the lease TTL, this wants to maintain a connection. probably a better way to do this
 		# For now the workaround is to kill the pid.
 		# THIS NEEDS VERIFICATION THAT IT RETURNS A PROPER EXIT CODE!
-		( ETCDCTLPID=$BASHPID; (sleep 1; kill $ETCDCTLPID) & exec ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease keep-alive ${NODE_LEASE} )
+		timeout 2 ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease keep-alive ${NODE_LEASE}
         fi
 fi
 
@@ -153,8 +153,11 @@ do
 	  ;;
           scheduled|SCHEDULED)
 	  	logger -i "charkyd_agent: Scheduled service:${SERVICENAME} not yet deployed."
-  	*)
-
+	  ;;
+  	  *)
+	  	logger -i "charkyd_agent: WARNING Scheduled service: ${SERVICENAME} unknown service state: ${DESIRED_SERVICE_STATE}!"
+	  ;;
+	esac
 done
 
 
