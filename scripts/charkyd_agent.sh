@@ -167,7 +167,7 @@ tail -fn0 ${WATCH_LOG} | while read wline ;
 do
   if echo ${wline} | grep -q "${HOSTID}"
   then
-	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | while read -r line
+	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | grep -e "servicename:" -e "state:" | while read -r line
 	do 
 		DESIRED_SERVICE_STATE=$(echo ${line} | sed 's/.*state://' | cut -d "," -f1)
 		SERVICENAME=$(echo ${line} | sed 's/.*servicename://' | cut -d "," -f1)
