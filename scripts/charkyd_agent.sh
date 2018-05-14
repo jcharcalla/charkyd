@@ -18,6 +18,7 @@
 
 CONFIG=/etc/charkyd.conf
 MEM_CONFIG=/dev/shm/charkyd.mem.conf
+NODE_LEASE_KEEPALIVE_PID=/var/run/charkyd_agent_node.pid
 
 # config options (these should be stored as factors on the node)
 # putting these here for now, they should be in the config file
@@ -77,28 +78,24 @@ fi
 create_node_lease()
 {
 	NODE_LEASE=$(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease grant ${NODE_LEASE_TTL} | cut -d " " -f 2 )
-	echo "NODE_LEASE=${NODE_LEASE}" >> ${MEM_CONFIG}
+	# echo "NODE_LEASE=${NODE_LEASE}" >> ${MEM_CONFIG}
 	# Register the node and assign the new lease as it most likely does not exist.
 	# ADD A CHECK HERE ENSURING THE NODE IS NOT ALREADY IN THE DB
 	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_NODES}/${REGION}/${RACK}/${HOSTID} nodeid:${HOSTID},fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,numproc:${NUMPROC},totmem:${TOTMEM},epoch:${EPOCH},arch:x86_64
+	# Background a keepalive proccess for the node, so that if it stops the node key are removed
+	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease keep-alive ${NODE_LEASE} && echo $! > ${NODE_LEASE_KEEPALIVE_PID}
 }
 
 # Check for the presence of a node lease ID
-if [ ! -f ${MEM_CONFIG} ]
+if [ ! -f ${NODE_LEASE_KEEPALIVE_PID} ]
 then
 	create_node_lease
 else
-        source ${MEM_CONFIG}
-        # Check if we sourced the NODE_LEASE var from the config, if not this is a new host so make a new one
-        if [ -z ${NODE_LEASE} ]
-        then
+	if [ ! kill -0 $(cat ${NODE_LEASE_KEEPALIVE_PID} ) ]
+	then
+		# create a new node lease because this one must be stale
 		create_node_lease
-	else
-		# refresh the lease TTL, this wants to maintain a connection. probably a better way to do this
-		# For now the workaround is to kill the pid.
-		# THIS NEEDS VERIFICATION THAT IT RETURNS A PROPER EXIT CODE!
-		timeout 2 ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease keep-alive ${NODE_LEASE}
-        fi
+	fi
 fi
 
 #
