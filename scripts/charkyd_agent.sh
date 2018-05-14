@@ -19,6 +19,8 @@
 CONFIG=/etc/charkyd.conf
 MEM_CONFIG=/dev/shm/charkyd.mem.conf
 NODE_LEASE_KEEPALIVE_PID=/var/run/charkyd_agent_node.pid
+NODE_TASK_WATCH_PID=/var/run/charkyd_agent_taskwatch.pid
+WATCH_LOG=/var/log/charkyd_watch.log
 
 # config options (these should be stored as factors on the node)
 # putting these here for now, they should be in the config file
@@ -49,6 +51,7 @@ TOTMEM=$(grep MemTotal /proc/meminfo | awk '{print $2}')
 TOTMEM=$((TOTMEM/102400))
 FQDN=`nslookup $(hostname -f) | grep "Name:" | cut -d":" -f2 | xargs`
 IPV4=`nslookup $(hostname -f) | grep "Name:" -A1 | tail -n1 | cut -d":" -f2 | xargs`
+EPOCH=$(date +%s)
 
 #
 # Load or generate config files
@@ -83,7 +86,9 @@ create_node_lease()
 	# ADD A CHECK HERE ENSURING THE NODE IS NOT ALREADY IN THE DB
 	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_NODES}/${REGION}/${RACK}/${HOSTID} nodeid:${HOSTID},fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,numproc:${NUMPROC},totmem:${TOTMEM},epoch:${EPOCH},arch:x86_64
 	# Background a keepalive proccess for the node, so that if it stops the node key are removed
-	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease keep-alive ${NODE_LEASE} && echo $! > ${NODE_LEASE_KEEPALIVE_PID}
+	KEEPA_CMD="${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease keep-alive ${NODE_LEASE}"
+	nohup ${KEEPA_CMD} &
+	echo $! > ${NODE_LEASE_KEEPALIVE_PID}
 }
 
 # Check for the presence of a node lease ID
@@ -91,7 +96,7 @@ if [ ! -f ${NODE_LEASE_KEEPALIVE_PID} ]
 then
 	create_node_lease
 else
-	if [ ! kill -0 $(cat ${NODE_LEASE_KEEPALIVE_PID} ) ]
+	if [ ! `kill -0 $(cat ${NODE_LEASE_KEEPALIVE_PID})` ]
 	then
 		# create a new node lease because this one must be stale
 		create_node_lease
@@ -131,31 +136,63 @@ stop_service()
 # This is where we check and update the status of the local service
 #
 
-${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | while read -r line
-do 
-	DESIRED_SERVICE_STATE=$(echo ${line} | sed 's/.*state://' | cut -d "," -f1)
-	SERVICENAME=$(echo ${line} | | sed 's/.*servicename://' | cut -d "," -f1)
-   	case ${DESIERED_SERVICE_STATE} in
-	   started|STARTED|running)
-		if [ "$(systemctl is-active ${SERVICENAME})" != 'active' ];
-		then 
-			restart_service 
-		fi
-	  ;;
-  	  stopped|STOPPED|disabled)
-		stop_service
-	  ;;
-  	  restart|RESTART|restarted|RESTARTED)
-		restart_service
-	  ;;
-          scheduled|SCHEDULED)
-	  	logger -i "charkyd_agent: Scheduled service:${SERVICENAME} not yet deployed."
-	  ;;
-  	  *)
-	  	logger -i "charkyd_agent: WARNING Scheduled service: ${SERVICENAME} unknown service state: ${DESIRED_SERVICE_STATE}!"
-	  ;;
-	esac
-done
+# start a watcher if its not already running NODE_TASK_WATCH_PID
+watch_node_tasks()
+{
+        #TASKW_CMD="${ETCDCTL_BIN} watch --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | while read wline; do echo ${wline} | grep -q "${HOSTID}" && $0 & done"
+        TASKW_CMD="${ETCDCTL_BIN} watch --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID}"
+	echo ${TASKW_CMD}
+        nohup ${TASKW_CMD} > ${WATCH_LOG} 2>&1&
+        echo $! > ${NODE_TASK_WATCH_PID}
+}
 
+
+# If it is already running maybe it triggered this so run through and start things. 
+if [ ! -f ${NODE_TASK_WATCH_PID} ]
+then
+        watch_node_tasks
+else
+        if [ ! `kill -0 $(cat ${NODE_TASK_WATCH_PID})` ]
+        then
+        	watch_node_tasks
+        fi
+fi
+
+# Notify systemd that we are ready
+systemd-notify --ready --status="charkyd now watching for services to run"
+
+# This is a hack for no exec-watch in etcd3. lets watch the log file from the 
+# backgrounded proccess to trigger on.
+tail -fn0 ${WATCH_LOG} | while read wline ;
+do
+  if echo ${wline} | grep -q "${HOSTID}"
+  then
+	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | while read -r line
+	do 
+		DESIRED_SERVICE_STATE=$(echo ${line} | sed 's/.*state://' | cut -d "," -f1)
+		SERVICENAME=$(echo ${line} | sed 's/.*servicename://' | cut -d "," -f1)
+   		case ${DESIERED_SERVICE_STATE} in
+	   	started|STARTED|running)
+			if [ "$(systemctl is-active ${SERVICENAME})" != 'active' ];
+			then 
+				restart_service 
+			fi
+	  	;;
+  	  	stopped|STOPPED|disabled)
+			stop_service
+		  ;;
+  		  restart|RESTART|restarted|RESTARTED)
+			restart_service
+		  ;;
+       		   scheduled|SCHEDULED)
+	  		logger -i "charkyd_agent: Scheduled service:${SERVICENAME} not yet deployed."
+		  ;;
+  		  *)
+	  		logger -i "charkyd_agent: WARNING Scheduled service: ${SERVICENAME} unknown service state: ${DESIRED_SERVICE_STATE}!"
+		  ;;
+		esac
+	done
+  fi
+done
 
 exit 0
