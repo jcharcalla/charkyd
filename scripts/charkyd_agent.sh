@@ -175,6 +175,9 @@ systemd-notify --ready --status="charkyd now watching for services to run"
 # This is a hack for no exec-watch in etcd3. lets watch the log file from the 
 # backgrounded proccess to trigger on.
 # https://github.com/coreos/etcd/pull/8919
+
+# I need a way to ensure the watch pid is still running and break this loop
+# if soemthing fails. I should also check the TTL keepalive, maybe systemd can do that
 tail -fn0 ${WATCH_LOG} | while read wline ;
 do
   if echo ${wline} | grep -q "${HOSTID}"
