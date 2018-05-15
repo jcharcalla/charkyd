@@ -16,6 +16,11 @@
 # v.1 initial version
 #
 
+# Ideas
+# I need to add the concept of service groups and tie TTL processe to them.
+# I would also need to kill the status key if for some reason the service 
+# was not running locally
+
 CONFIG=/etc/charkyd.conf
 MEM_CONFIG=/dev/shm/charkyd.mem.conf
 NODE_LEASE_KEEPALIVE_PID=/var/run/charkyd_agent_node.pid
@@ -163,10 +168,12 @@ systemd-notify --ready --status="charkyd now watching for services to run"
 
 # This is a hack for no exec-watch in etcd3. lets watch the log file from the 
 # backgrounded proccess to trigger on.
+# https://github.com/coreos/etcd/pull/8919
 tail -fn0 ${WATCH_LOG} | while read wline ;
 do
   if echo ${wline} | grep -q "${HOSTID}"
   then
+	# we can probably just pull this from the $wline var above to simplify this and reduce queries.
 	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | grep -e "servicename:" -e "state:" | while read -r line
 	do 
 		DESIRED_SERVICE_STATE=$(echo ${line} | sed 's/.*state://' | cut -d "," -f1)
