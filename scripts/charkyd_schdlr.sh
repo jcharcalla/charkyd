@@ -1,31 +1,6 @@
-# Schdulerler logic
 #
 # This is meant to be containerized
 #
-
-# Start 3 monitors for this service
-#
-# Watch for new jobs
-
-# take the job, aka update key. then wait and query the key again to make 
-# sure we have it claimed add something like "scheduler:thisnode"
-
-# If no other schduler has claimed it move on
-
-# on new job select nodes from correct rack, reagion, <alt>, node specific.
-# choose node to run on
-
-# Run deployment shell `git clone ansible && ansible-playbook ...`
-
-# On success of installing the service, submit the job to node or nodes (maybe
-# have monitoring service start the nodes like the previous version)
-
-# If monitoring was requested start them now (need method for custome monitor,
-# also, monitors should monitor each other and submit a new job if needed)
-
-# once deployment has been sucseccful delete the entry and add it to a 
-# /deployed/region/rack/nodeid location so that we can remove them if needed
-# or at least know what was deployed where.
 
 #
 #
@@ -62,7 +37,7 @@ API_VERSION=v1
 NAMESPACE=cluster1
 NODE_LEASE_TTL=30
 PREFIX_SCHEDULED=/charkyd/${API_VERSION}/${NAMESPACE}/services/scheduled
-#PREFIX_RUNNING=/charkyd/${API_VERSION}/${NAMESPACE}/services/running
+PREFIX_STATE=/charkyd/${API_VERSION}/${NAMESPACE}/services/state
 #PREFIX_PAUSED=/charkyd/${API_VERSION}/${NAMESPACE}/services/paused
 PREFIX_MONITOR=/charkyd/${API_VERSION}/${NAMESPACE}/services/monitor
 PREFIX_STATUS=/charkyd/${API_VERSION}/${NAMESPACE}/services/status
@@ -72,3 +47,51 @@ PREFIX_NODES=/charkyd/${API_VERSION}/${NAMESPACE}/nodes
 MONITOR_MIN=3
 MONITOR_ELECTS=1
 
+# Start 3 monitors for this service
+#
+# Watch for new jobs
+
+watch_scheduled()
+{
+        #TASKW_CMD="${ETCDCTL_BIN} watch --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | while read wline; do echo ${wline} | grep -q "${HOSTID}" && $0 & done"
+        TASKW_CMD="${ETCDCTL_BIN} watch --prefix ${PREFIX_SCHEDULED}/"
+        echo ${TASKW_CMD}
+        nohup ${TASKW_CMD} > ${WATCH_LOG} 2>&1&
+        echo $! > ${NODE_TASK_WATCH_PID}
+}
+
+
+# If it is already running maybe it triggered this so run through and start things. 
+if [ ! -f ${NODE_TASK_WATCH_PID} ]
+then
+        watch_node_tasks
+else
+        if [ ! `kill -0 $(cat ${NODE_TASK_WATCH_PID})` ]
+        then
+                watch_node_tasks
+        fi
+fi
+
+# Notify systemd that we are ready
+systemd-notify --ready --status="charkyd now watching for services to run"
+
+
+# take the job, aka update key. then wait and query the key again to make 
+# sure we have it claimed add something like "scheduler:thisnode"
+
+# If no other schduler has claimed it move on
+
+# on new job select nodes from correct rack, reagion, <alt>, node specific.
+# choose node to run on
+
+# Run deployment shell `git clone ansible && ansible-playbook ...`
+
+# On success of installing the service, submit the job to node or nodes (maybe
+# have monitoring service start the nodes like the previous version)
+
+# If monitoring was requested start them now (need method for custome monitor,
+# also, monitors should monitor each other and submit a new job if needed)
+
+# once deployment has been sucseccful delete the entry and add it to a 
+# /deployed/region/rack/nodeid location so that we can remove them if needed
+# or at least know what was deployed where.

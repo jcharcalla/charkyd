@@ -39,7 +39,7 @@ API_VERSION=v1
 NAMESPACE=cluster1
 NODE_LEASE_TTL=30
 PREFIX_SCHEDULED=/charkyd/${API_VERSION}/${NAMESPACE}/services/scheduled
-#PREFIX_RUNNING=/charkyd/${API_VERSION}/${NAMESPACE}/services/running
+PREFIX_STATE=/charkyd/${API_VERSION}/${NAMESPACE}/services/state
 #PREFIX_PAUSED=/charkyd/${API_VERSION}/${NAMESPACE}/services/paused
 PREFIX_MONITOR=/charkyd/${API_VERSION}/${NAMESPACE}/services/monitor
 PREFIX_STATUS=/charkyd/${API_VERSION}/${NAMESPACE}/services/status
@@ -145,7 +145,7 @@ stop_service()
 watch_node_tasks()
 {
         #TASKW_CMD="${ETCDCTL_BIN} watch --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | while read wline; do echo ${wline} | grep -q "${HOSTID}" && $0 & done"
-        TASKW_CMD="${ETCDCTL_BIN} watch --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID}"
+        TASKW_CMD="${ETCDCTL_BIN} watch --prefix ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}"
 	echo ${TASKW_CMD}
         nohup ${TASKW_CMD} > ${WATCH_LOG} 2>&1&
         echo $! > ${NODE_TASK_WATCH_PID}
@@ -174,7 +174,7 @@ do
   if echo ${wline} | grep -q "${HOSTID}"
   then
 	# we can probably just pull this from the $wline var above to simplify this and reduce queries.
-	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | grep -e "servicename:" -e "state:" | while read -r line
+	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID} | grep -e "servicename:" -e "state:" | while read -r line
 	do 
 		DESIRED_SERVICE_STATE=$(echo ${line} | sed 's/.*state://' | cut -d "," -f1)
 		SERVICENAME=$(echo ${line} | sed 's/.*servicename://' | cut -d "," -f1)
