@@ -10,6 +10,12 @@
 # local host, but then every node would be pulling from git.
 #
 
+# the monitor script should check for and start at least one 
+# scheduler node if none are running... therefor the scheduler
+# does not need to request monitors. for effucency schdulers
+# should have an additional queue and TTL on both node ans
+# scheduler service 
+
 #
 #
 # charkyd_scheduler.sh
@@ -31,7 +37,7 @@
 
 CONFIG=/etc/charkyd.conf
 SCHEDULE_WATCH_PID=/var/run/charkyd_agent_taskwatch.pid
-WATCH_LOG=/var/log/charkyd_schedwatch.log
+SCHEDULE_WATCH_LOG=/var/log/charkyd_schedwatch.log
 ELECTION_SLEEP=5
 
 # config options (these should be stored as factors on the node)
@@ -190,12 +196,14 @@ do
 		if [ ${SERVICE_NODE} != "none" ]
 		then
 			NODE_SEARCH_PREFIX=${PREFIX_NODES}/${SERVICE_REGION}/${SERVICE_RACK}/${SERVICE_NODE}		
-		else if [ ${SERVICE_RACK} != "none" ]
+		elif [ ${SERVICE_RACK} != "none" ]
+		then
 			NODE_SEARCH_PREFIX=${PREFIX_NODES}/${SERVICE_REGION}/${SERVICE_RACK}
 		# Should we be deploying things out of our region?
 		#else if [ ${SERVICE_REGION} != "none" ]
 		#	NODE_SEARCH_PREFIX=${PREFIX_NODES}/${SERVICE_REGION}/
-		else if [ ${SERVICE_REGION} = ${REGION} ]
+		elif [ ${SERVICE_REGION} = "${REGION}" ]
+		then
 			NODE_SEARCH_PREFIX=${PREFIX_NODES}/${SERVICE_REGION}/
 		else
 			SKIP_SERVICE=1
@@ -206,6 +214,7 @@ do
 			if [ ${REPLICAS} -eq 1 ]
 			then
 				if [ ${SERVICE_NODE} = "none" ]
+				then
 					elect_node
 					deploy_service
 				else
@@ -218,7 +227,7 @@ do
 					deploy_service
 				fi
 
-			else if [ ${REPLICAS} -gt 1 ]
+			elif [ ${REPLICAS} -gt 1 ]
 			then
 				PREV_NODE=none
 				#elect and deploy in a loop
