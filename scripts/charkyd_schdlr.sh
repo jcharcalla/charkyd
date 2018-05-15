@@ -1,6 +1,14 @@
 #
 # This is meant to be containerized
 #
+# The original versionm of this ran locally, that would seem
+# to me as a security risk of some sort (if this is pushing
+# ansible to other hosts), but in high demand
+# workloads could be beneficial to run locally. this should
+# support both methods, and could be tweaked to search only
+# for jobs scheduled on the local node and run ansible against
+# local host, but then every node would be pulling from git.
+#
 
 #
 #
@@ -53,27 +61,26 @@ MONITOR_ELECTS=1
 
 watch_scheduled()
 {
-        #TASKW_CMD="${ETCDCTL_BIN} watch --prefix ${PREFIX_SCHEDULED}/${REGION}/${RACK}/${HOSTID} | while read wline; do echo ${wline} | grep -q "${HOSTID}" && $0 & done"
-        TASKW_CMD="${ETCDCTL_BIN} watch --prefix ${PREFIX_SCHEDULED}/"
+        TASKW_CMD="${ETCDCTL_BIN} watch --prefix ${PREFIX_SCHEDULED}/ | grep "scheduler_node:none""
         echo ${TASKW_CMD}
         nohup ${TASKW_CMD} > ${WATCH_LOG} 2>&1&
-        echo $! > ${NODE_TASK_WATCH_PID}
+        echo $! > ${SCHEDULE_WATCH_PID}
 }
 
 
 # If it is already running maybe it triggered this so run through and start things. 
 if [ ! -f ${NODE_TASK_WATCH_PID} ]
 then
-        watch_node_tasks
+        watch_scheduled
 else
-        if [ ! `kill -0 $(cat ${NODE_TASK_WATCH_PID})` ]
+        if [ ! `kill -0 $(cat ${SCHEDULE_WATCH_PID})` ]
         then
-                watch_node_tasks
+                watch_scheduled
         fi
 fi
 
 # Notify systemd that we are ready
-systemd-notify --ready --status="charkyd now watching for services to run"
+systemd-notify --ready --status="charkyd now watching for services to schedule"
 
 
 # take the job, aka update key. then wait and query the key again to make 

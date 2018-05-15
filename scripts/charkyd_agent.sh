@@ -20,6 +20,12 @@
 # I need to add the concept of service groups and tie TTL processe to them.
 # I would also need to kill the status key if for some reason the service 
 # was not running locally
+#
+# There should be a concept of schedule ordering, however that sounds like
+# it shoud be done by whatever submits the services. aka a startup
+# order for resuming after power outages. essentially we need a feild in the db
+# and a snopshot of it prior to shutdown, so that it can be resubmitted in the
+# correct order on power up.
 
 CONFIG=/etc/charkyd.conf
 MEM_CONFIG=/dev/shm/charkyd.mem.conf
