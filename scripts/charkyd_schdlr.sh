@@ -186,7 +186,7 @@ fi
 systemd-notify --ready --status="charkyd now watching for services to schedule"
 
 # Check for running monitors and start one if none are availble
-MONITOR_COUNT=$(${ETCDCTL_BIN} get --prefix ${PREFIX_MONITOR} | grep nodeid | wc -l)
+MONITOR_COUNT=$(${ETCDCTL_BIN} get --prefix ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/monitor_service | grep nodeid | wc -l)
 if [ ${MONITOR_COUNT} -eq 0 ]
 then
 	logger -i "charkyd_scheduler: WARNING: No monitor services found. Attempting to schedule one."
