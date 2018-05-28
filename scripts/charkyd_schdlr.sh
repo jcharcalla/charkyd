@@ -40,6 +40,7 @@
 
 CONFIG=/etc/charkyd.conf
 SCHEDULE_WATCH_PID=/var/run/charkyd_agent_taskwatch.pid
+SCHED_LEASE_KEEPALIVE_PID=/var/run/charkyd_sched_lease_ka.pid
 SCHEDULE_WATCH_LOG=/var/log/charkyd_schedwatch.log
 ELECTION_SLEEP=5
 
@@ -147,8 +148,29 @@ else
 fi
 }
 
+# Spawn a service keep alive lease thing to report that this service is running
+create_scheduler_lease()
+{
+        SCHED_LEASE=$(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease grant ${SCHED_LEASE_TTL} | cut -d " " -f 2 )
+        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${SCHED_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/scheduler_service nodeid:${HOSTID},fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,epoch:${EPOCH}
+        # Background a keepalive proccess for the scheduler service, so that if it stops the key is removed
+        KEEPA_CMD="${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease keep-alive ${SCHED_LEASE}"
+        nohup ${KEEPA_CMD} &
+        echo $! > ${SCHED_LEASE_KEEPALIVE_PID}
+}
 
-# If it is already running maybe it triggered this so run through and start things. 
+# check for the scheduler lease pid, if its not there start a new one, if it is kill the old
+if [ ! -f ${SCHED_LEASE_KEEPALIVE_PID} ]
+then
+	create_scheduler_lease
+else
+        if [ ! `kill -0 $(cat ${SCHED_LEASE_KEEPALIVE_PID})` ]
+        then
+		create_scheduler_lease
+        fi
+fi
+
+# If the scheduler watcher pid is already running maybe it triggered this so run through and start things. 
 if [ ! -f ${SCHEDULE_WATCH_PID} ]
 then
         watch_scheduled
@@ -158,20 +180,6 @@ else
                 watch_scheduled
         fi
 fi
-
-# Spawn a service keep alive lease thing
-create_scheduler_lease()
-{
-        SCHED_LEASE=$(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease grant ${SCHED_LEASE_TTL} | cut -d " " -f 2 )
-        # echo "NODE_LEASE=${NODE_LEASE}" >> ${MEM_CONFIG}
-        # Register the node and assign the new lease as it most likely does not exist.
-        # ADD A CHECK HERE ENSURING THE NODE IS NOT ALREADY IN THE DB
-        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${SCHED_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID} nodeid:${HOSTID},fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,epoch:${EPOCH}
-        # Background a keepalive proccess for the node, so that if it stops the node key are removed
-        KEEPA_CMD="${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease keep-alive ${SCHED_LEASE}"
-        nohup ${KEEPA_CMD} &
-        echo $! > ${SCHED_LEASE_KEEPALIVE_PID}
-}
 
 
 # Notify systemd that we are ready

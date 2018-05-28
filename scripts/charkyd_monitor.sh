@@ -50,13 +50,23 @@ create_monitor_lease()
         # echo "NODE_LEASE=${NODE_LEASE}" >> ${MEM_CONFIG}
         # Register the node and assign the new lease as it most likely does not exist.
         # ADD A CHECK HERE ENSURING THE NODE IS NOT ALREADY IN THE DB
-        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${MONITOR_LEASE} ${PREFIX_MONITORS}/${REGION}/${RACK}/${HOSTID} nodeid:${HOSTID},fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,epoch:${EPOCH}
+        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${MONITOR_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/monitor_service nodeid:${HOSTID},fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,epoch:${EPOCH}
         # Background a keepalive proccess for the node, so that if it stops the node key are removed
         KEEPA_CMD="${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease keep-alive ${MONITOR_LEASE}"
         nohup ${KEEPA_CMD} &
         echo $! > ${MONITOR_LEASE_KEEPALIVE_PID}
 }
 
+# check for the scheduler lease pid, if its not there start a new one, if it is kill the old
+if [ ! -f ${MONITOR_LEASE_KEEPALIVE_PID} ]
+then
+        create_monitor_lease
+else
+        if [ ! `kill -0 $(cat ${SCHED_LEASE_KEEPALIVE_PID})` ]
+        then
+                create_monitor_lease
+        fi
+fi
 #
 # Check for running scheduler services.
 #
