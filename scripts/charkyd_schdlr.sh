@@ -12,7 +12,10 @@
 
 # the monitor script should check for and start at least one 
 # scheduler node if none are running... therefor the scheduler
-# does not need to request monitors. for effucency schdulers
+# does not need to request monitors. however on start the 
+# schedueler should check for at least one monitor service to be 
+# running and scheduler it, since the monitor cannot start
+# services but only schedule them. for effucency schdulers
 # should have an additional queue and TTL on both node ans
 # scheduler service 
 
