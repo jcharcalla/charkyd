@@ -54,6 +54,7 @@ UUID_LENGTH=12
 API_VERSION=v1
 NAMESPACE=cluster1
 NODE_LEASE_TTL=30
+SCHED_LEASE_TTL=15
 PREFIX_SCHEDULED=/charkyd/${API_VERSION}/${NAMESPACE}/services/scheduled
 PREFIX_STATE=/charkyd/${API_VERSION}/${NAMESPACE}/services/state
 #PREFIX_PAUSED=/charkyd/${API_VERSION}/${NAMESPACE}/services/paused
@@ -157,6 +158,21 @@ else
                 watch_scheduled
         fi
 fi
+
+# Spawn a service keep alive lease thing
+create_scheduler_lease()
+{
+        SCHED_LEASE=$(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease grant ${SCHED_LEASE_TTL} | cut -d " " -f 2 )
+        # echo "NODE_LEASE=${NODE_LEASE}" >> ${MEM_CONFIG}
+        # Register the node and assign the new lease as it most likely does not exist.
+        # ADD A CHECK HERE ENSURING THE NODE IS NOT ALREADY IN THE DB
+        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${SCHED_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID} nodeid:${HOSTID},fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,epoch:${EPOCH}
+        # Background a keepalive proccess for the node, so that if it stops the node key are removed
+        KEEPA_CMD="${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease keep-alive ${SCHED_LEASE}"
+        nohup ${KEEPA_CMD} &
+        echo $! > ${SCHED_LEASE_KEEPALIVE_PID}
+}
+
 
 # Notify systemd that we are ready
 systemd-notify --ready --status="charkyd now watching for services to schedule"
@@ -266,6 +282,13 @@ do
 			# also, monitors should monitor each other and submit a new job if needed)
 			# This should be a function in the above if statements so it can be repeated
 			# Need to work on how I do that, aka itterate through them
+
+			#
+			# Monitoring and subsequent ttl on state should be done through the app
+			# for best efective ness. however, we dont want all apps having access
+			# to the DB, i should probably spawn another service that verifies state
+			# of all services on this machine, and do this auto magically
+			#
 
 		else
 			# This service is outside of my region, not sure why this would ever be a problem

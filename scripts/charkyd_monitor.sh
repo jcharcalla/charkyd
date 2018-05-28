@@ -36,6 +36,26 @@
 # v.1 initial version
 #
 
+# Variables
+MONITOR_LEASE_KEEPALIVE_PID=
+
+# Functions go here
+
+#
+# Spawn a service lease
+#
+create_monitor_lease()
+{
+        MONITOR_LEASE=$(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease grant ${MONITOR_LEASE_TTL} | cut -d " " -f 2 )
+        # echo "NODE_LEASE=${NODE_LEASE}" >> ${MEM_CONFIG}
+        # Register the node and assign the new lease as it most likely does not exist.
+        # ADD A CHECK HERE ENSURING THE NODE IS NOT ALREADY IN THE DB
+        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${MONITOR_LEASE} ${PREFIX_MONITORS}/${REGION}/${RACK}/${HOSTID} nodeid:${HOSTID},fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,epoch:${EPOCH}
+        # Background a keepalive proccess for the node, so that if it stops the node key are removed
+        KEEPA_CMD="${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease keep-alive ${MONITOR_LEASE}"
+        nohup ${KEEPA_CMD} &
+        echo $! > ${MONITOR_LEASE_KEEPALIVE_PID}
+}
 
 #
 # Check for running scheduler services.
@@ -45,7 +65,7 @@
 #
 # Make sure we we have 3 monitors running
 #
-# Launch one at a time
+# Launch one at a time, by selecting a node and setting it to run there
 #
 
 #
