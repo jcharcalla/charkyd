@@ -13,6 +13,9 @@
 # variable. aka, i saw a job, is it there, wait, see if another
 # node took it, then act.
 
+# this script should have two modes, one to spawn watchers, 
+# and another that is what the watcher spawns.
+
 #
 #
 # charkyd_monitor.sh
@@ -32,3 +35,25 @@
 # Changelog:
 # v.1 initial version
 #
+
+
+#
+# Check for running scheduler services.
+#
+
+
+#
+# Make sure we we have 3 monitors running
+#
+# Launch one at a time
+#
+
+#
+# For every service that has requested a monitor, start a watcher and background
+#
+
+#
+# Go into a loop around a watcher for long running
+#
+  # 
+  # For every new thing that pops up spawn off a new watcher proccess
