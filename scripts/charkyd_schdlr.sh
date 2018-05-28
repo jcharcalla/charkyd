@@ -98,6 +98,7 @@ watch_scheduled()
 }
 
 # Select hosts to be monitors
+# The put here needs tweaked, but it should elect at least 1
 elect_monitor()
 {
         for i in $(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_NODES} | grep nodeid | sort -R | head -n${MONITOR_ELECTS} | cut -d "," -f1 | cut -d ":" -f 2);
@@ -159,6 +160,17 @@ fi
 
 # Notify systemd that we are ready
 systemd-notify --ready --status="charkyd now watching for services to schedule"
+
+# Check for running monitors and start one if none are availble
+MONITOR_COUNT=$(${ETCDCTL_BIN} get --prefix ${PREFIX_MONITOR} | grep nodeid | wc -l)
+if [ ${MONITOR_COUNT} -eq 0 ]
+then
+	logger -i "charkyd_scheduler: WARNING: No monitor services found. Attempting to schedule one."
+	# Maybe sleep here breifly and check again, or just start one
+	elect_monitor
+	logger -i "charkyd_scheduler: Scheduled monitor service."
+fi
+
 
 # Go into a loop...
 # figure out a way to break out of this if the pid stops
