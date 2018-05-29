@@ -16,6 +16,9 @@
 # v.1 initial version
 #
 
+# Set selinux to permisive now, this is due to systemd-notify
+# systemd-notify --ready --status="charkyd now watching for services to run"
+
 # Ideas
 # I need to add the concept of service groups and tie TTL processe to them.
 # I would also need to kill the status key if for some reason the service 
@@ -44,6 +47,10 @@ UUID_LENGTH=12
 API_VERSION=v1
 NAMESPACE=cluster1
 NODE_LEASE_TTL=30
+# these should be differnt, more like
+#//charkyd/${API_VERSION}/${NAMESPACE}/${REGION}/${RACK}/${NODE}/status/
+#//charkyd/${API_VERSION}/${NAMESPACE}/${REGION}/${RACK}/${NODE}/${SERVICE}/status/
+#//charkyd/${API_VERSION}/${NAMESPACE}/${REGION}/${RACK}/${NODE}/${SERVICE}/state/
 PREFIX_SCHEDULED=/charkyd/${API_VERSION}/${NAMESPACE}/services/scheduled
 PREFIX_STATE=/charkyd/${API_VERSION}/${NAMESPACE}/services/state
 #PREFIX_PAUSED=/charkyd/${API_VERSION}/${NAMESPACE}/services/paused
@@ -89,6 +96,9 @@ fi
 # tyring a status key to it.
 #
 
+# With this new method I need a way for the node to re-report itself if it;s entry in the
+# db gets deleted. aka a sub proccess that every minut or so rewrites its db entry 
+# as a form of long term heart beat.
 create_node_lease()
 {
 	NODE_LEASE=$(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease grant ${NODE_LEASE_TTL} | cut -d " " -f 2 )
@@ -194,24 +204,24 @@ do
 		DESIRED_SERVICE_STATE=$(echo ${line} | sed 's/.*state://' | cut -d "," -f1)
 		SERVICENAME=$(echo ${line} | sed 's/.*servicename://' | cut -d "," -f1)
    		case ${DESIERED_SERVICE_STATE} in
-	   	started|STARTED|running)
+		started|STARTED|running)
 			if [ "$(systemctl is-active ${SERVICENAME})" != 'active' ];
 			then 
 				restart_service 
 			fi
 	  	;;
-  	  	stopped|STOPPED|disabled)
+		stopped|STOPPED|disabled)
 			stop_service
-		  ;;
-  		  restart|RESTART|restarted|RESTARTED)
+		;;
+		restart|RESTART|restarted|RESTARTED)
 			restart_service
-		  ;;
-       		   scheduled|SCHEDULED)
+		;;
+	  	scheduled|SCHEDULED)
 	  		logger -i "charkyd_agent: Scheduled service:${SERVICENAME} not yet deployed."
-		  ;;
-  		  *)
-	  		logger -i "charkyd_agent: WARNING Scheduled service: ${SERVICENAME} unknown service state: ${DESIRED_SERVICE_STATE}!"
-		  ;;
+		;;
+  		*)
+	  		logger -i "charkyd_agent: WARNING Scheduled service: ${SERVICENAME} unknown service state: ${DESIRED_SERVICE_STATE}"
+		;;
 		esac
 	done
   fi

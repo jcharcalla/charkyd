@@ -104,13 +104,14 @@ watch_scheduled()
 elect_monitor()
 {
         for i in $(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_NODES} | grep nodeid | sort -R | head -n${MONITOR_ELECTS} | cut -d "," -f1 | cut -d ":" -f 2);
-	        do EPOCH=$(date +%s); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_MONITOR}/${REGION}/${RACK}/${i}/${SERVICENAME} servicename:${SERVICENAME},unit_file:${UNIT_FILE},replicas:${REPLICAS},nodeid:${HOSTID},epoch:${EPOCH};
+	        do EPOCH=$(date +%s); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/monitor_service servicename:monitor_service,unit_file:charkyd_monitor.service,replicas:1,nodeid:${HOSTID},epoch:${EPOCH},state:started;
         done
 }
 
 elect_node()
 {
 	${ETCDCTL_BIN} get --prefix ${NODE_SEARCH_PREFIX} | grep nodeid | sort -R | head -n 1
+	# I should really do this based on load, avail mem / cpu, number of currently running services, etc
 	NODE_IPV4=$(echo ${line} | sed 's/.*ipv4://' | cut -d "," -f1)
 	NODE_IPV6=$(echo ${line} | sed 's/.*ipv6://' | cut -d "," -f1)
 	NODE_FQDN=$(echo ${line} | sed 's/.*fqdn://' | cut -d "," -f1)
@@ -184,6 +185,7 @@ fi
 
 # Notify systemd that we are ready
 systemd-notify --ready --status="charkyd now watching for services to schedule"
+logger -i "charkyd_scheduler: Scheduler service now running."
 
 # Check for running monitors and start one if none are availble
 MONITOR_COUNT=$(${ETCDCTL_BIN} get --prefix ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/monitor_service | grep nodeid | wc -l)

@@ -37,7 +37,39 @@
 #
 
 # Variables
-MONITOR_LEASE_KEEPALIVE_PID=
+MONITOR_LEASE=45
+MONITOR_LEASE_KEEPALIVE_PID=/var/run/charkyd_monitor_service_lease.pid
+
+CONFIG=/etc/charkyd.conf
+SCHEDULE_WATCH_PID=/var/run/charkyd_agent_taskwatch.pid
+SCHED_LEASE_KEEPALIVE_PID=/var/run/charkyd_sched_lease_ka.pid
+SCHEDULE_WATCH_LOG=/var/log/charkyd_schedwatch.log
+ELECTION_SLEEP=5
+
+# config options (these should be stored as factors on the node)
+# putting these here for now, they should be in the config file
+ETCD_ENDPOINTS="192.168.79.61:2379,192.168.79.62:2379,192.168.79.63:2379"
+export ETCDCTL_API=3
+ETCDCTL_BIN=/usr/local/bin/etcdctl
+REGION=region1
+RACK=rack1
+UUID_LENGTH=12
+API_VERSION=v1
+NAMESPACE=cluster1
+NODE_LEASE_TTL=30
+SCHED_LEASE_TTL=15
+PREFIX_SCHEDULED=/charkyd/${API_VERSION}/${NAMESPACE}/services/scheduled
+PREFIX_STATE=/charkyd/${API_VERSION}/${NAMESPACE}/services/state
+#PREFIX_PAUSED=/charkyd/${API_VERSION}/${NAMESPACE}/services/paused
+PREFIX_MONITOR=/charkyd/${API_VERSION}/${NAMESPACE}/services/monitor
+PREFIX_STATUS=/charkyd/${API_VERSION}/${NAMESPACE}/services/status
+#PREFIX_TERMINATED=/charkyd/${API_VERSION}/${NAMESPACE}/services/terminated
+#PREFIX_ERASED=/charkyd/${API_VERSION}/${NAMESPACE}/services/erased
+PREFIX_NODES=/charkyd/${API_VERSION}/${NAMESPACE}/nodes
+MONITOR_MIN=3
+MONITOR_ELECTS=1
+
+
 
 # Functions go here
 
@@ -67,6 +99,13 @@ else
                 create_monitor_lease
         fi
 fi
+
+# Notify systemd that we are ready
+systemd-notify --ready --status="charkyd monitor services now running"
+
+# syslog that we are runnign
+logger -i "charkyd_scheduler: Monitor service now running."
+
 #
 # Check for running scheduler services.
 #
@@ -76,6 +115,7 @@ fi
 # Make sure we we have 3 monitors running
 #
 # Launch one at a time, by selecting a node and setting it to run there
+# make sure we don'tselet this host. could just be inverse grep
 #
 
 #
@@ -87,3 +127,7 @@ fi
 #
   # 
   # For every new thing that pops up spawn off a new watcher proccess
+
+logger -i "charkyd_scheduler: Monitor service now exiting."
+
+exit 0
