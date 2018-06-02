@@ -41,6 +41,7 @@ MONITOR_LEASE=45
 MONITOR_LEASE_KEEPALIVE_PID=/var/run/charkyd_monitor_service_lease.pid
 
 CONFIG=/etc/charkyd.conf
+PID_PATH=/var/run/
 SCHEDULE_WATCH_PID=/var/run/charkyd_agent_taskwatch.pid
 SCHED_LEASE_KEEPALIVE_PID=/var/run/charkyd_sched_lease_ka.pid
 SCHEDULE_WATCH_LOG=/var/log/charkyd_schedwatch.log
@@ -139,9 +140,23 @@ fi
 #
 
 # for i in service mon
-# do 
-# 	check for pid
+for i in $(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_MONITORS} | grep nodeid | grep -v ${HOSTID} | sort -R);
+do # Check for pid
+nodeid=$(echo ${i} | sed 's/.*nodeid://' | cut -d "," -f1)
+servicename=$(echo ${i} | sed 's/.*servicename://' | cut -d "," -f1)
+MONITOR_KEEPALIVE_PID=${PID_PATH}${nodeid}_${servicename}.pid
+# check for the scheduler lease pid, if its not there start a new one, if it is kill the old
+if [ ! -f ${MONITOR_KEEPALIVE_PID} ]
+then
+        create_monitor_lease
+else
+        if [ ! `kill -0 $(cat ${SCHED_LEASE_KEEPALIVE_PID})` ]
+        then
+                create_monitor_lease
+        fi
+fi
 #	if no pid start watch in background
+done
 
 #
 # Go into a loop around a watcher for long running
