@@ -42,9 +42,11 @@ MONITOR_LEASE_KEEPALIVE_PID=/var/run/charkyd_monitor_service_lease.pid
 
 CONFIG=/etc/charkyd.conf
 PID_PATH=/var/run/
-SCHEDULE_WATCH_PID=/var/run/charkyd_agent_taskwatch.pid
+MONITOR_WATCH_PID=/var/run/charkyd_monitor_taskwatch.pid
+MONITOR_SERVICE_WATCH_PID=/var/run/charkyd_monitor_servicewatch.pid
 SCHED_LEASE_KEEPALIVE_PID=/var/run/charkyd_sched_lease_ka.pid
-SCHEDULE_WATCH_LOG=/var/log/charkyd_schedwatch.log
+MONITOR_WATCH_LOG=/var/log/charkyd_monitorwatch.log
+MONITOR_SERVICE_WATCH_LOG=/var/log/charkyd_monitorsrvicewatch.log
 ELECTION_SLEEP=5
 
 # config options (these should be stored as factors on the node)
@@ -67,6 +69,7 @@ PREFIX_STATUS=/charkyd/${API_VERSION}/${NAMESPACE}/services/status
 #PREFIX_TERMINATED=/charkyd/${API_VERSION}/${NAMESPACE}/services/terminated
 #PREFIX_ERASED=/charkyd/${API_VERSION}/${NAMESPACE}/services/erased
 PREFIX_NODES=/charkyd/${API_VERSION}/${NAMESPACE}/nodes
+# I should have a flow table so sdn switches can use it to build networks
 MONITOR_MIN=3
 MONITOR_ELECTS=1
 
@@ -88,6 +91,22 @@ create_monitor_lease()
         KEEPA_CMD="${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease keep-alive ${MONITOR_LEASE}"
         nohup ${KEEPA_CMD} &
         echo $! > ${MONITOR_LEASE_KEEPALIVE_PID}
+}
+
+watch_monitor_requests()
+{       
+        MONW_CMD="${ETCDCTL_BIN} watch --prefix ${PREFIX_MONITOR}/ | grep "nodeid:""
+        echo ${MONW_CMD}
+        nohup ${MONW_CMD} > ${MONITOR_WATCH_LOG} 2>&1&
+        echo $! > ${MONITOR_WATCH_PID}
+}
+
+monitor_service()
+{       
+        MONSERVICEW_CMD="${ETCDCTL_BIN} watch --prefix ${PREFIX_STATUS}/${nodeid} | grep "servicename:${servicename}""
+        echo ${MONSERVICEW_CMD}
+        nohup ${MONSERVICEW_CMD} >> ${MONITOR_SERVICE_WATCH_LOG} 2>&1&
+        echo $! > ${MONITOR_SERVICE_WATCH_PID}
 }
 
 # Select hosts to be monitors
@@ -140,7 +159,7 @@ fi
 #
 
 # for i in service mon
-for i in $(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_MONITORS} | grep nodeid | grep -v ${HOSTID} | sort -R);
+for i in $(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_MONITORS} | grep nodeid | sort -R);
 do # Check for pid
 nodeid=$(echo ${i} | sed 's/.*nodeid://' | cut -d "," -f1)
 servicename=$(echo ${i} | sed 's/.*servicename://' | cut -d "," -f1)
@@ -148,11 +167,11 @@ MONITOR_KEEPALIVE_PID=${PID_PATH}${nodeid}_${servicename}.pid
 # check for the scheduler lease pid, if its not there start a new one, if it is kill the old
 if [ ! -f ${MONITOR_KEEPALIVE_PID} ]
 then
-        create_monitor_lease
+        monitor_service
 else
-        if [ ! `kill -0 $(cat ${SCHED_LEASE_KEEPALIVE_PID})` ]
+        if [ ! `kill -0 $(cat ${MONITOR_KEEPALIVE_PID})` ]
         then
-                create_monitor_lease
+                monitor_service
         fi
 fi
 #	if no pid start watch in background
@@ -161,8 +180,41 @@ done
 #
 # Go into a loop around a watcher for long running
 #
+
+# Start the function
+# If the scheduler watcher pid is already running maybe it triggered this so run through and start things.
+if [ ! -f ${MONITOR_WATCH_PID} ]
+then
+        watch_monitor_requests
+else
+        if [ ! `kill -0 $(cat ${MONITOR_WATCH_PID})` ]
+        then
+                watch_monitor_requests
+        fi
+fi
+
+# tail the log file
+tail -fn0 ${MONITOR_WATCH_LOG} | while read wline ;
+do
   # 
   # For every new thing that pops up spawn off a new watcher proccess
+nodeid=$(echo ${wline} | sed 's/.*nodeid://' | cut -d "," -f1)
+servicename=$(echo ${wline} | sed 's/.*servicename://' | cut -d "," -f1)
+MONITOR_KEEPALIVE_PID=${PID_PATH}${nodeid}_${servicename}.pid
+# check for the scheduler lease pid, if its not there start a new one, if it is kill the old
+if [ ! -f ${MONITOR_KEEPALIVE_PID} ]
+then
+        monitor_service
+else
+        if [ ! `kill -0 $(cat ${MONITOR_KEEPALIVE_PID})` ]
+        then
+                monitor_service
+        fi
+fi
+#       if no pid start watch in background
+  # failback?
+done
+
 
 logger -i "charkyd_scheduler: Monitor service now exiting."
 
