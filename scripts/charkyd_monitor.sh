@@ -89,6 +89,16 @@ create_monitor_lease()
         echo $! > ${MONITOR_LEASE_KEEPALIVE_PID}
 }
 
+# Select hosts to be monitors
+# The put here needs tweaked, but it should elect at least 1
+elect_monitor()
+{
+        for i in $(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_NODES} | grep nodeid | grep -v ${HOSTID} | sort -R | head -n${MONITOR_ELECTS} | cut -d "," -f1 | cut -d ":" -f 2);
+                do EPOCH=$(date +%s); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATE}/${REGION}/${RACK}/${i}/monitor_service servicename:monitor_service,unit_file:charkyd_monitor.service,replicas:1,nodeid:${i},epoch:${EPOCH},state:started;
+        done
+}
+
+
 # check for the scheduler lease pid, if its not there start a new one, if it is kill the old
 if [ ! -f ${MONITOR_LEASE_KEEPALIVE_PID} ]
 then
@@ -109,18 +119,29 @@ logger -i "charkyd_scheduler: Monitor service now running."
 #
 # Check for running scheduler services.
 #
+MONITOR_COUNT=$(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${MONITOR_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/monitor_service | grep nodeid | wc -l)
+
 
 
 #
 # Make sure we we have 3 monitors running
 #
+if [ ${MONITOR_COUNT} -lt ${MONITOR_MIN} ]
+then
 # Launch one at a time, by selecting a node and setting it to run there
 # make sure we don'tselet this host. could just be inverse grep
 #
-
+# No need to launch more than one, on start the next will launch one.
+	elect_monitor
+fi
 #
 # For every service that has requested a monitor, start a watcher and background
 #
+
+# for i in service mon
+# do 
+# 	check for pid
+#	if no pid start watch in background
 
 #
 # Go into a loop around a watcher for long running
