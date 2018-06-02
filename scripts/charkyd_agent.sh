@@ -129,6 +129,10 @@ fi
 #
 # systemd-analyze dump | awk '/-> Unit /{u=$3} /Unit Load State: /{l=$4} /Unit Active State: /{s=$4} /^->/{print u" "l": "s}'
 
+#
+# I could add a mode where we start and stop LXD or SWARM services directly, as a type of over cluster...
+#
+
 
 # check if something should be running or what state it should be in
 restart_service()
@@ -203,6 +207,7 @@ do
 	do 
 		DESIRED_SERVICE_STATE=$(echo ${line} | sed 's/.*state://' | cut -d "," -f1)
 		SERVICENAME=$(echo ${line} | sed 's/.*servicename://' | cut -d "," -f1)
+		# could add a service type here to allow restarting of LXD or SWARM containers
    		case ${DESIERED_SERVICE_STATE} in
 		started|STARTED|running)
 			if [ "$(systemctl is-active ${SERVICENAME})" != 'active' ];
@@ -222,6 +227,7 @@ do
   		*)
 	  		logger -i "charkyd_agent: WARNING Scheduled service: ${SERVICENAME} unknown service state: ${DESIRED_SERVICE_STATE}"
 		;;
+		# A migrate using CRIU option would be cool.
 		esac
 	done
   fi
