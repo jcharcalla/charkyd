@@ -213,7 +213,7 @@ do
 	sleep ${ELECTION_SLEEP}
 
 	# check if any other schduler has claimed it after us
-	VERIFY_SCHEDW="${ETCDCTL_BIN} watch --prefix ${PREFIX_SCHEDULED}/ | grep "scheduler:${HOSTID}""
+	VERIFY_SCHEDW="${ETCDCTL_BIN} get --prefix ${PREFIX_SCHEDULED}/ | grep "scheduler:${HOSTID}""
 	if [ ${NEWLINE} = ${VERIFY_SCHEDW} ]
 	then
 		# Set this in case we decide not to deploy it
