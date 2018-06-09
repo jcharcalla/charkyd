@@ -123,9 +123,9 @@ deploy_service()
 # Run deployment shell `git clone ansible && ansible-playbook ...`
 logger -i "charkyd_scheduler: Deploying scheduled service: ${SERVICE_NAME_ORIG}"
 echo "NODEID=${NODEID}" > /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
-echo "NODE_IPV4=${NODE_IPV4}" > /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
-echo "NODE_IPV6=${NODE_IPV6}" > /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
-echo "NODE_FQDN=${NODE_FQDN}" > /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
+echo "NODE_IPV4=${NODE_IPV4}" >> /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
+echo "NODE_IPV6=${NODE_IPV6}" >> /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
+echo "NODE_FQDN=${NODE_FQDN}" >> /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
 echo ${DEPLOY_CMD} >> /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
 chmod +x /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
 /usr/bin/sh /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
@@ -143,7 +143,7 @@ then
         ${ETCDCTL_BIN} del ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG}
                        
 else
-        ${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} ${wline},servicestatus:failed
+        ${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} ${line},servicestatus:failed
 	logger -i "charkyd_scheduler: WARNING Scheduled service: ${SERVICE_NAME_ORIG} failed deployment!"
 
 fi
@@ -200,12 +200,12 @@ fi
 
 # Go into a loop...
 # figure out a way to break out of this if the pid stops
-tail -fn0 ${SCHEDULE_WATCH_LOG} | while read wline ;
+tail -fn0 ${SCHEDULE_WATCH_LOG} | while read line ;
 do
 	# take the job, aka update key. then wait and query the key again to make 
 	# sure we have it claimed add something like "scheduler:thisnode"
 	# Update status, maybe rename via delete
-	NEWLINE=$(echo ${wline} | sed "s/schedulernode:none/schedulernode:${HOSTID}/g")
+	NEWLINE=$(echo ${line} | sed "s/schedulernode:none/schedulernode:${HOSTID}/g")
 	${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/ ${NEWLINE};
 
 	# Wait and see if another node beat us to the job
@@ -284,7 +284,7 @@ do
 					fi
 				done
 			else
-					${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} ${wline},servicestatus:failed
+					${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} ${line},servicestatus:failed
                         		logger -i "charkyd_scheduler: WARNING Invalid replica count for service: ${SERVICE_NAME_ORIG} Deployment Failed!"
 					SKIP_SERVICE=1
 			fi
@@ -303,7 +303,7 @@ do
 		else
 			# This service is outside of my region, not sure why this would ever be a problem
 			# in a real world scenario. Give it back to the scheduler
-			${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} ${wline}
+			${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} ${line}
                         logger -i "charkyd_scheduler: WARNING Scheduled service: ${SERVICE_NAME_ORIG} unknown region!"
 		fi
 

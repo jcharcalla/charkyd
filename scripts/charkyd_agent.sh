@@ -203,11 +203,18 @@ do
   if echo ${wline} | grep -q "${HOSTID}"
   then
 	# we can probably just pull this from the $wline var above to simplify this and reduce queries.
+	# although, with this method we could sweep the entire list for this host in case we missed
+	# something.
 	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID} | grep -e "servicename:" -e "state:" | while read -r line
 	do 
 		DESIRED_SERVICE_STATE=$(echo ${line} | sed 's/.*state://' | cut -d "," -f1)
 		SERVICENAME=$(echo ${line} | sed 's/.*servicename://' | cut -d "," -f1)
 		# could add a service type here to allow restarting of LXD or SWARM containers
+		# Or that could be a seperate script
+
+		# I should have an if here, if scheduler, or if monitor do it a little differnt
+		# This should include starting a lease for the status of the service.
+		# a seperate non node lease.
    		case ${DESIERED_SERVICE_STATE} in
 		started|STARTED|running)
 			if [ "$(systemctl is-active ${SERVICENAME})" != 'active' ];
@@ -228,6 +235,10 @@ do
 	  		logger -i "charkyd_agent: WARNING Scheduled service: ${SERVICENAME} unknown service state: ${DESIRED_SERVICE_STATE}"
 		;;
 		# A migrate using CRIU option would be cool.
+
+		# after changes we should resubmit basics on core and mem count. Although, this is somewhat outside the scpoe
+		# and should be done by the application per say or nagios, icinga, or tick stack metrics. Lets not
+		# re-invent the wheel.
 		esac
 	done
   fi
