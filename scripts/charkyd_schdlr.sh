@@ -201,7 +201,7 @@ fi
 
 # Go into a loop...
 # figure out a way to break out of this if the pid stops
-tail -fn0 ${SCHEDULE_WATCH_LOG} | while read line ;
+tail -fn0 ${SCHEDULE_WATCH_LOG} | grep --line-buffered "schedulernode:na" | while read line ;
 do
 	# take the job, aka update key. then wait and query the key again to make 
 	# sure we have it claimed add something like "scheduler:thisnode"
