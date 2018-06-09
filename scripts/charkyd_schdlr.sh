@@ -38,6 +38,7 @@
 #
 
 
+
 CONFIG=/etc/charkyd.conf
 SCHEDULE_WATCH_PID=/var/run/charkyd_agent_taskwatch.pid
 SCHED_LEASE_KEEPALIVE_PID=/var/run/charkyd_sched_lease_ka.pid
@@ -93,7 +94,7 @@ fi
 
 watch_scheduled()
 {
-        SCHEDW_CMD="${ETCDCTL_BIN} watch --prefix ${PREFIX_SCHEDULED}/ | grep "schedulernode:none""
+        SCHEDW_CMD="${ETCDCTL_BIN} watch --prefix ${PREFIX_SCHEDULED}/"
         echo ${SCHEDW_CMD}
         nohup ${SCHEDW_CMD} > ${SCHEDULE_WATCH_LOG} 2>&1&
         echo $! > ${SCHEDULE_WATCH_PID}
