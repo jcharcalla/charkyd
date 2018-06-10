@@ -201,21 +201,24 @@ fi
 
 # Go into a loop...
 # figure out a way to break out of this if the pid stops
-tail -fn0 ${SCHEDULE_WATCH_LOG} | grep --line-buffered "schedulernode:na" | while read line ;
+$(tail -fn0 ${SCHEDULE_WATCH_LOG} | grep --line-buffered "schedulernode:na") | while read line;
 do
 	# take the job, aka update key. then wait and query the key again to make 
 	# sure we have it claimed add something like "scheduler:thisnode"
 	# Update status, maybe rename via delete
+	logger -i "charkyd_scheduler: Scheduler acknowledging job. "
 	NEWLINE=$(echo ${line} | sed "s/schedulernode:none/schedulernode:${HOSTID}/g")
 	${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/ ${NEWLINE};
 
 	# Wait and see if another node beat us to the job
 	sleep ${ELECTION_SLEEP}
 
+	logger -i "charkyd_scheduler: Scheduler atempting to claim job "
 	# check if any other schduler has claimed it after us
 	VERIFY_SCHEDW="${ETCDCTL_BIN} get --prefix ${PREFIX_SCHEDULED}/ | grep "scheduler:${HOSTID}""
 	if [ ${NEWLINE} = ${VERIFY_SCHEDW} ]
 	then
+		logger -i "charkyd_scheduler: Scheduler accepted new job"
 		# Set this in case we decide not to deploy it
 		SKIP_SERVICE=0
 		# Parse the entry. these should be there, make sure whatever client I
@@ -238,28 +241,36 @@ do
 		if [ ${SERVICE_NODE} != "none" ]
 		then
 			NODE_SEARCH_PREFIX=${PREFIX_NODES}/${SERVICE_REGION}/${SERVICE_RACK}/${SERVICE_NODE}		
+			logger -i "charkyd_scheduler: Scheduler service node found"
+
 		elif [ ${SERVICE_RACK} != "none" ]
 		then
 			NODE_SEARCH_PREFIX=${PREFIX_NODES}/${SERVICE_REGION}/${SERVICE_RACK}
+			logger -i "charkyd_scheduler: Scheduler service rack found"
 		# Should we be deploying things out of our region?
 		#else if [ ${SERVICE_REGION} != "none" ]
 		#	NODE_SEARCH_PREFIX=${PREFIX_NODES}/${SERVICE_REGION}/
 		elif [ ${SERVICE_REGION} = "${REGION}" ]
 		then
+			logger -i "charkyd_scheduler: Scheduler service in our region"
 			NODE_SEARCH_PREFIX=${PREFIX_NODES}/${SERVICE_REGION}/
 		else
+			logger -i "charkyd_scheduler: Scheduler service outside our region"
 			SKIP_SERVICE=1
 		fi
 
-		if [ ${SKIP_SERVICE} -ne 0 ]
+		if [ ${SKIP_SERVICE} -eq 0 ]
 		then
-			if [ ${REPLICAS} -eq 1 ]
+			logger -i "charkyd_scheduler: Scheduler accepting service into queue"
+			if [ ${REPLICAS} -le 1 ]
 			then
 				if [ ${SERVICE_NODE} = "none" ]
 				then
+					logger -i "charkyd_scheduler: Scheduler electing node for service"
 					elect_node
 					deploy_service
 				else
+					logger -i "charkyd_scheduler: Scheduler deploying service"
 					NODEID=${SERVICE_NODE}
 					${ETCDCTL_BIN} get --prefix ${NODE_SEARCH_PREFIX} | grep nodeid
 				        NODE_IPV4=$(echo ${line} | sed 's/.*ipv4://' | cut -d "," -f1)
