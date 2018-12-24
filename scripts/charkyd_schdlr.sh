@@ -47,7 +47,7 @@ ELECTION_SLEEP=5
 
 # config options (these should be stored as factors on the node)
 # putting these here for now, they should be in the config file
-ETCD_ENDPOINTS="192.168.79.61:2379,192.168.79.62:2379,192.168.79.63:2379"
+ETCD_ENDPOINTS="{{ charkyd_etcd_endpoints }}"
 export ETCDCTL_API=3
 ETCDCTL_BIN=/usr/local/bin/etcdctl
 REGION=region1
