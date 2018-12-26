@@ -75,6 +75,17 @@ EPOCH=$(date +%s)
 # Load or generate config files
 #
 
+# Do it in a way that may be safer than just sourcing the file
+# Coming back to this later 12-25-18
+load_config()
+{
+	grep -e HOSTID -e ETCD_ENDPOINTS -e REGION -e RACK -e NAMESPACE ${CHARKYD_CONF}
+	while read config_line
+       	do
+	    ????
+	done
+}
+
 # If there is no config file create one and create a host id
 if [ ! -f ${CONFIG} ]
 then
@@ -168,6 +179,9 @@ watch_node_tasks()
         TASKW_CMD="${ETCDCTL_BIN} watch --prefix ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}"
 	echo ${TASKW_CMD}
         nohup ${TASKW_CMD} > ${WATCH_LOG} 2>&1&
+	# to not log the puts and other info I could probably do this
+        #nohup ${TASKW_CMD} | grep servicename >> ${WATCH_LOG} 2>&1&
+	# This didnt work, I even tried it on the TASKW_CMD
         echo $! > ${NODE_TASK_WATCH_PID}
 }
 
@@ -198,9 +212,21 @@ systemd-notify --ready --status="charkyd now watching for services to run"
 # This would also allow me a reaper type of script that simply compared states
 # in a slower interval in case something was missed.
 #
-tail -fn0 ${WATCH_LOG} | while read wline ;
+# Maybe a better idea https://stackoverflow.com/questions/30787575/using-tail-f-on-a-log-file-with-grep-in-bash-script
+#
+# This works # while read line; do echo "Detected new service ${line}"; done< <(exec tail -fn0 /var/log/charkyd_watch.log)
+#
+# Note: you get 3 lines
+# Detected new service PUT
+# Detected new service /charkyd/v1/cluster1/services/state/region1/rack1/7bf138d47b875118324bc9a6/test6
+# Detected new service servicename:test6
+#
+# I may be able to grep these out when I write the log, but I may want the info, or just grep out what I
+# need in the middle of the while loop
+#
+while read wline ;
 do
-  if echo ${wline} | grep -q "${HOSTID}"
+  if echo ${wline} | grep -q "servicename"
   then
 	# we can probably just pull this from the $wline var above to simplify this and reduce queries.
 	# although, with this method we could sweep the entire list for this host in case we missed
@@ -242,6 +268,6 @@ do
 		esac
 	done
   fi
-done
+done< <(exec tail -fn0 ${WATCH_LOG})
 
 exit 0
