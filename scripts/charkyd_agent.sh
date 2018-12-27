@@ -30,23 +30,33 @@
 # and a snopshot of it prior to shutdown, so that it can be resubmitted in the
 # correct order on power up.
 
+# If there is no config file create one and create a host id
 CONFIG=/etc/charkyd.conf
+
+if [ ! -f ${CONFIG} ]
+then
+        HOSTID=$(openssl rand -hex ${UUID_LENGTH})
+        echo "HOSTID=${HOSTID}" > ${CONFIG}
+else
+        #. ${CONFIG}
+        source ${CONFIG}
+        # Check if we sourced the HOSTID var from the config, if not this is a new host so make a new one
+        if [ -z ${HOSTID} ]
+        then
+                HOSTID=$(openssl rand -hex ${UUID_LENGTH})
+                echo "HOSTID=${HOSTID}" >> ${CONFIG}
+        fi
+fi
+
 MEM_CONFIG=/dev/shm/charkyd.mem.conf
 NODE_LEASE_KEEPALIVE_PID=/var/run/charkyd_agent_node.pid
 NODE_TASK_WATCH_PID=/var/run/charkyd_agent_taskwatch.pid
-WATCH_LOG=/var/log/charkyd_watch.log
+WATCH_LOG=/var/log/charkyd_agentwatch.log
 
 # config options (these should be stored as factors on the node)
 # putting these here for now, they should be in the config file
-ETCD_ENDPOINTS="{{ charkyd_etcd_endpoints }}"
 export ETCDCTL_API=3
 ETCDCTL_BIN=/usr/local/bin/etcdctl
-REGION=region1
-RACK=rack1
-UUID_LENGTH=12
-API_VERSION=v1
-NAMESPACE=cluster1
-NODE_LEASE_TTL=30
 # these should be differnt, more like
 #//charkyd/${API_VERSION}/${NAMESPACE}/${REGION}/${RACK}/${NODE}/status/
 #//charkyd/${API_VERSION}/${NAMESPACE}/${REGION}/${RACK}/${NODE}/${SERVICE}/status/
@@ -86,20 +96,6 @@ load_config()
 	done
 }
 
-# If there is no config file create one and create a host id
-if [ ! -f ${CONFIG} ]
-then
-	HOSTID=$(openssl rand -hex ${UUID_LENGTH})
-        echo "HOSTID=${HOSTID}" > ${CONFIG}
-else
-        source ${CONFIG}
-	# Check if we sourced the HOSTID var from the config, if not this is a new host so make a new one
-	if [ -z ${HOSTID} ]
-	then
-        	HOSTID=$(openssl rand -hex ${UUID_LENGTH})
-        	echo "HOSTID=${HOSTID}" >> ${CONFIG}
-	fi
-fi
 
 
 #
@@ -242,17 +238,26 @@ do
 		# This should include starting a lease for the status of the service.
 		# a seperate non node lease.
    		case ${DESIERED_SERVICE_STATE} in
-		started|STARTED|running)
+		start|START|started|STARTED|running)
 			if [ "$(systemctl is-active ${SERVICENAME})" != 'active' ];
 			then 
 				restart_service 
 			fi
 	  	;;
-		stopped|STOPPED|disabled)
+		stop|STOP|stopped|STOPPED|disabled)
 			stop_service
 		;;
 		restart|RESTART|restarted|RESTARTED)
 			restart_service
+		;;
+		pause|PAUSE|freeze|FREEZE)
+			echo "Nothing to do now"
+		;;
+		resume|RESUME|thaw|THAW)
+			echo "Nothing to do now"
+		;;
+		destroy|DESTROY|stonith|STONITH)
+			# if the service exists, make sure its stopped.
 		;;
 	  	scheduled|SCHEDULED)
 	  		logger -i "charkyd_agent: Scheduled service:${SERVICENAME} not yet deployed."
@@ -269,5 +274,7 @@ do
 	done
   fi
 done< <(exec tail -fn0 ${WATCH_LOG})
+# Alternativly we could skip writing to disk and just exec the etcd watch 
+#done< <(exec ${ETCDCTL_BIN} watch --prefix ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID})
 
 exit 0

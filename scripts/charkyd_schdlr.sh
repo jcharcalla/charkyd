@@ -40,33 +40,6 @@
 
 
 CONFIG=/etc/charkyd.conf
-SCHEDULE_WATCH_PID=/var/run/charkyd_agent_taskwatch.pid
-SCHED_LEASE_KEEPALIVE_PID=/var/run/charkyd_sched_lease_ka.pid
-SCHEDULE_WATCH_LOG=/var/log/charkyd_schedwatch.log
-ELECTION_SLEEP=5
-
-# config options (these should be stored as factors on the node)
-# putting these here for now, they should be in the config file
-ETCD_ENDPOINTS="{{ charkyd_etcd_endpoints }}"
-export ETCDCTL_API=3
-ETCDCTL_BIN=/usr/local/bin/etcdctl
-REGION=region1
-RACK=rack1
-UUID_LENGTH=12
-API_VERSION=v1
-NAMESPACE=cluster1
-NODE_LEASE_TTL=30
-SCHED_LEASE_TTL=15
-PREFIX_SCHEDULED=/charkyd/${API_VERSION}/${NAMESPACE}/services/scheduled
-PREFIX_STATE=/charkyd/${API_VERSION}/${NAMESPACE}/services/state
-#PREFIX_PAUSED=/charkyd/${API_VERSION}/${NAMESPACE}/services/paused
-PREFIX_MONITOR=/charkyd/${API_VERSION}/${NAMESPACE}/services/monitor
-PREFIX_STATUS=/charkyd/${API_VERSION}/${NAMESPACE}/services/status
-#PREFIX_TERMINATED=/charkyd/${API_VERSION}/${NAMESPACE}/services/terminated
-#PREFIX_ERASED=/charkyd/${API_VERSION}/${NAMESPACE}/services/erased
-PREFIX_NODES=/charkyd/${API_VERSION}/${NAMESPACE}/nodes
-MONITOR_MIN=3
-MONITOR_ELECTS=1
 
 # If there is no config file create one and create a host id
 if [ ! -f ${CONFIG} ]
@@ -82,6 +55,27 @@ else
                 echo "HOSTID=${HOSTID}" >> ${CONFIG}
         fi
 fi
+
+SCHEDULE_WATCH_PID=/var/run/charkyd_agent_taskwatch.pid
+SCHED_LEASE_KEEPALIVE_PID=/var/run/charkyd_sched_lease_ka.pid
+SCHEDULE_WATCH_LOG=/var/log/charkyd_schedwatch.log
+ELECTION_SLEEP=5
+
+# config options (these should be stored as factors on the node)
+# putting these here for now, they should be in the config file
+export ETCDCTL_API=3
+ETCDCTL_BIN=/usr/local/bin/etcdctl
+PREFIX_SCHEDULED=/charkyd/${API_VERSION}/${NAMESPACE}/services/scheduled
+PREFIX_STATE=/charkyd/${API_VERSION}/${NAMESPACE}/services/state
+#PREFIX_PAUSED=/charkyd/${API_VERSION}/${NAMESPACE}/services/paused
+PREFIX_MONITOR=/charkyd/${API_VERSION}/${NAMESPACE}/services/monitor
+PREFIX_STATUS=/charkyd/${API_VERSION}/${NAMESPACE}/services/status
+#PREFIX_TERMINATED=/charkyd/${API_VERSION}/${NAMESPACE}/services/terminated
+#PREFIX_ERASED=/charkyd/${API_VERSION}/${NAMESPACE}/services/erased
+PREFIX_NODES=/charkyd/${API_VERSION}/${NAMESPACE}/nodes
+MONITOR_MIN=3
+MONITOR_ELECTS=1
+
 
 ##
 ## Functions
@@ -202,7 +196,7 @@ fi
 # Go into a loop...
 # figure out a way to break out of this if the pid stops
 logger -i "charkyd_scheduler: debug entering loop."
-$(tail -fn0 ${SCHEDULE_WATCH_LOG}) | while read line;
+while read line;
 do
 	# take the job, aka update key. then wait and query the key again to make 
 	# sure we have it claimed add something like "scheduler:thisnode"
@@ -323,7 +317,7 @@ do
 
 	fi
 
-done
+done< <(exec tail -fn0 ${SCHEDULE_WATCH_LOG})
 
 
 exit 0

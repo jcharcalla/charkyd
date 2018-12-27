@@ -41,6 +41,19 @@ MONITOR_LEASE=45
 MONITOR_LEASE_KEEPALIVE_PID=/var/run/charkyd_monitor_service_lease.pid
 
 CONFIG=/etc/charkyd.conf
+
+# load some config options, at one point i thought i had a 
+# method for sanatizing this.
+if [ ! -f ${CONFIG} ]
+then
+        echo "Config not availible, exiting..."
+        logger -i "charkyd_monitor: ERROR, no config file, exiting..."
+        exit 1;
+else
+        source ${CONFIG}
+        # Check if we sourced the HOSTID var from the config, if not this is a new host so make a new one
+fi
+
 PID_PATH=/var/run/
 MONITOR_WATCH_PID=/var/run/charkyd_monitor_watch.pid
 MONITOR_SERVICE_WATCH_PID=/var/run/charkyd_monitor_servicewatch.pid
@@ -51,15 +64,8 @@ ELECTION_SLEEP=5
 
 # config options (these should be stored as factors on the node)
 # putting these here for now, they should be in the config file
-ETCD_ENDPOINTS="{{ charkyd_etcd_endpoints }}"
 export ETCDCTL_API=3
 ETCDCTL_BIN=/usr/local/bin/etcdctl
-REGION=region1
-RACK=rack1
-UUID_LENGTH=12
-API_VERSION=v1
-NAMESPACE=cluster1
-MONITOR_LEASE_TTL=15
 PREFIX_SCHEDULED=/charkyd/${API_VERSION}/${NAMESPACE}/services/scheduled
 PREFIX_STATE=/charkyd/${API_VERSION}/${NAMESPACE}/services/state
 #PREFIX_PAUSED=/charkyd/${API_VERSION}/${NAMESPACE}/services/paused
@@ -73,17 +79,6 @@ MONITOR_MIN=3
 SCHEDULER_MIN=1
 MONITOR_ELECTS=1
 
-# load some config options, at one point i thought i had a 
-# method for sanatizing this.
-if [ ! -f ${CONFIG} ]
-then
-	echo "Config not availible, exiting..."
-	logger -i "charkyd_monitor: ERROR, no config file, exiting..."
-	exit 1;
-else
-        source ${CONFIG}
-        # Check if we sourced the HOSTID var from the config, if not this is a new host so make a new one
-fi
 # Functions go here
 
 #
