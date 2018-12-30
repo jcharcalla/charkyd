@@ -140,12 +140,13 @@ chmod +x /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
 if [ $? -ne 0 ]
 then
         logger -i "charkyd_scheduler: starting scheduled service: ${SERVICE_NAME_ORIG}"
-        ${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID} servicename:${SERVICE_NAME_ORIG},state:started
+        ${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} servicename:${SERVICE_NAME_ORIG},state:started
         ${ETCDCTL_BIN} del ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG}
                        
 else
         ${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} ${line},servicestatus:failed
-        ${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID} servicename:${SERVICE_NAME_ORIG},state:deploy_failed
+	# I think this should be putting to the scheduled queue
+        ${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} servicename:${SERVICE_NAME_ORIG},state:deploy_failed
 	logger -i "charkyd_scheduler: WARNING Scheduled service: ${SERVICE_NAME_ORIG} failed deployment!"
 
 fi
@@ -154,7 +155,7 @@ fi
 agent_deploy_service()
 {
         logger -i "charkyd_scheduler: agent deploy of service: ${SERVICE_NAME_ORIG}"
-        ${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID} servicename:${SERVICE_NAME_ORIG},state:deploy
+        ${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} servicename:${SERVICE_NAME_ORIG},state:deploy
         ${ETCDCTL_BIN} del ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG}
 }
 
@@ -198,7 +199,7 @@ else
 fi
 
 # Notify our agent of our running state
-start_scheduler_service
+# start_scheduler_service
 
 # Notify systemd that we are ready
 systemd-notify --ready --status="charkyd now watching for services to schedule"
@@ -295,7 +296,8 @@ do
 						# run it
 						agent_deploy_service
 					fi
-				else
+					;;
+				*)
 					logger -i "charkyd_scheduler: Scheduler remote deploying service"
 					NODEID=${SERVICE_NODE}
 					${ETCDCTL_BIN} get --prefix ${NODE_SEARCH_PREFIX} | grep nodeid
@@ -310,7 +312,8 @@ do
                                                 # set it to deploy in the service state queue
 						agent_deploy_service
                                         fi
-				fi
+					;;
+				esac
 
 			elif [ ${REPLICAS} -gt 1 ]
 			then

@@ -145,8 +145,9 @@ fi
 restart_service()
 {
 	logger -i "charkyd_agent: Service:\"${SERVICENAME}\", attempting restart."
-        systemctl restart ${SERVICENAME}.service
-        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:restarted,pid:na,nodeid:${HOSTID},epoch:${EPOCH}
+        systemctl restart ${SERVICENAME}.service && \
+	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:restarted,pid:na,nodeid:${HOSTID},epoch:${EPOCH} || \
+	logger -i "charkyd_agent: ERROR: Service:\"${SERVICENAME}\", failed restart."
 }
 
 start_service()
@@ -184,7 +185,7 @@ chmod +x /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
 if [ $? -ne 0 ]
 then
         logger -i "charkyd_agent: starting scheduled service: ${SERVICE_NAME_ORIG}"
-        ${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID} servicename:${SERVICE_NAME_ORIG},state:started
+        ${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} servicename:${SERVICE_NAME_ORIG},state:started
         ${ETCDCTL_BIN} del ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG}
 
 else

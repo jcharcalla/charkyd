@@ -91,7 +91,7 @@ create_monitor_lease()
         # echo "NODE_LEASE=${NODE_LEASE}" >> ${MEM_CONFIG}
         # Register the node and assign the new lease as it most likely does not exist.
         # ADD A CHECK HERE ENSURING THE NODE IS NOT ALREADY IN THE DB
-        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${MONITOR_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/monitor_service nodeid:${HOSTID},fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,epoch:${EPOCH}
+        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${MONITOR_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${MONITOR_SERVICE_NAME} nodeid:${HOSTID},fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,epoch:${EPOCH}
         # Background a keepalive proccess for the node, so that if it stops the node key are removed
         KEEPA_CMD="${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease keep-alive ${MONITOR_LEASE}"
         nohup ${KEEPA_CMD} &
@@ -134,9 +134,9 @@ elect_monitor()
 {
 	echo "debug elect monitor start"
         for i in $(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_NODES} | grep nodeid | grep -v ${HOSTID} | sort -R | head -n${MONITOR_ELECTS} | sed 's/.*nodeid://' | cut -d "," -f1);
-                do EPOCH=$(date +%s); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATE}/${REGION}/${RACK}/${i}/monitor_service servicename:monitor_service,unit_file:charkyd_monitor.service,replicas:1,nodeid:${i},epoch:${EPOCH},state:started;
+                do EPOCH=$(date +%s); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATE}/${REGION}/${RACK}/${i}/${MONITOR_SERVICE_NAME} servicename:${MONITOR_SERVICE_NAME},unit_file:${MONITOR_SERVICE_NAME}.service,replicas:1,nodeid:${i},epoch:${EPOCH},state:started;
         done
-	echo "${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATE}/${REGION}/${RACK}/${i}/monitor_service servicename:monitor_service,unit_file:charkyd_monitor.service,replicas:1,nodeid:${i},epoch:${EPOCH},state:started"
+	echo "${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATE}/${REGION}/${RACK}/${i}/${MONITOR_SERVICE_NAME} servicename:${MONITOR_SERVICE_NAME},unit_file:${MONITOR_SERVICE_NAME}.service,replicas:1,nodeid:${i},epoch:${EPOCH},state:started"
 	echo "${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_NODES} | grep nodeid | grep -v ${HOSTID} | sort -R | head -n${MONITOR_ELECTS} | sed 's/.*nodeid://' | cut -d "," -f1"
 	echo "debug elect monitor end"
 }
@@ -164,7 +164,7 @@ logger -i "charkyd_monitor: Monitor service now running."
 # Check for running scheduler services.
 #
 echo "check for running monitors"
-MONITOR_COUNT=$(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/monitor_service | grep nodeid | wc -l)
+MONITOR_COUNT=$(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${MONITOR_SERVICE_NAME} | grep nodeid | wc -l)
 
 
 
@@ -182,14 +182,14 @@ fi
 
 # Make sure we are running a scheduler? Only if it's requested monitoring I guess.
 # ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/scheduler_service
-SCHEDULER_COUNT=$(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/scheduler_service | grep nodeid | wc -l)
+SCHEDULER_COUNT=$(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SCHEDULER_SERVICE_NAME} | grep nodeid | wc -l)
 
 
 if [ ${SCHEDULER_COUNT} -lt ${SCHEDULER_MIN} ]
 then
 # I should proable have a mechanism here to take, wait, and then deploy the scheduler
         for i in $(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_NODES} | grep nodeid | grep -v ${HOSTID} | sort -R | head -n${MONITOR_ELECTS} | sed 's/.*nodeid://' | cut -d "," -f1);
-                do EPOCH=$(date +%s); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATE}/${REGION}/${RACK}/${i}/scheduler_service servicename:scheduler_service,unit_file:charkyd_schdlr.service,replicas:1,nodeid:${i},epoch:${EPOCH},state:started;
+                do EPOCH=$(date +%s); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATE}/${REGION}/${RACK}/${i}/${SCHEDULER_SERVICE_NAME} servicename:${SCHEDULER_SERVICE_NAME},unit_file:${SCHEDULER_SERVICE_NAME}.service,replicas:1,nodeid:${i},epoch:${EPOCH},state:started;
         done
 fi
 
