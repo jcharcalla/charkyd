@@ -144,21 +144,21 @@ fi
 # check if something should be running or what state it should be in
 restart_service()
 {
-	logger -i "charkyd_agent: Service :${SERVICENAME} attempting restart."
+	logger -i "charkyd_agent: Service:\"${SERVICENAME}\", attempting restart."
         systemctl restart ${SERVICENAME}.service
         ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:restarted,pid:na,nodeid:${HOSTID},epoch:${EPOCH}
 }
 
 start_service()
 {
-	logger -i "charkyd_agent: Service :${SERVICENAME} attempting start."
+	logger -i "charkyd_agent: Service:\"${SERVICENAME}\", attempting start."
         systemctl start ${SERVICENAME}.service
         ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:started,pid:na,nodeid:${HOSTID},epoch:${EPOCH}
         }
 
 stop_service()
 {
-	logger -i "charkyd_agent: Service :${SERVICENAME} attempting stop."
+	logger -i "charkyd_agent: Service:\"${SERVICENAME}\", attempting stop."
         systemctl stop ${SERVICENAME}.service
         ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:stopped,pid:na,nodeid:${HOSTID},epoch:${EPOCH}
         }
@@ -217,45 +217,48 @@ service_state_case()
 {
                 # could add a service type here to allow restarting of LXD or SWARM containers
                 # Or that could be a seperate script
-		logger -i "charkyd_agent: Checking state of scheduled service:${SERVICENAME}."
+		logger -i "charkyd_agent: Checking that desired state of scheduled service:\"${SERVICENAME}\", is \"${DESIRED_SERVICE_STATE}\"."
                 # I should have an if here, if scheduler, or if monitor do it a little differnt
                 # This should include starting a lease for the status of the service.
                 # a seperate non node lease.
-                case ${DESIERED_SERVICE_STATE} in
-                start|START|started|STARTED|running)
-                        if [ "$(systemctl is-active ${SERVICENAME})" != 'active' ];
-                        then
-                                restart_service
-                        fi
-                ;;
-                stop|STOP|stopped|STOPPED|disabled)
-                        stop_service
-                ;;
-                restart|RESTART|restarted|RESTARTED)
-                        restart_service
-                ;;
-                pause|PAUSE|freeze|FREEZE)
-                        echo "Nothing to do now"
-                ;;
-                resume|RESUME|thaw|THAW)
-                        echo "Nothing to do now"
-                ;;
-                deploy|DEPLOY)
-                        echo "Deploying service"
-                        deploy_service
-                ;;
-                destroy|DESTROY|stonith|STONITH)
+
+		# Not sure why i have to do this, might be something with spawning the sub proccess.
+		CASE_SERVICE_STATE=${DESIRED_SERVICE_STATE}
+                case ${CASE_SERVICE_STATE} in
+                	started|START|start|STARTED|running)
+                        	if [ "$(systemctl is-active ${SERVICENAME})" != 'active' ];
+                        	then
+                                	restart_service
+                        	fi
+                		;;
+                	stop|STOP|stopped|STOPPED|disabled)
+                        	stop_service
+                		;;
+                	restart|RESTART|restarted|RESTARTED)
+                        	restart_service
+                		;;
+                	pause|PAUSE|freeze|FREEZE)
+                        	echo "Nothing to do now"
+                		;;
+                	resume|RESUME|thaw|THAW)
+                        	echo "Nothing to do now"
+                		;;
+                	deploy|DEPLOY)
+                        	echo "Deploying service"
+                        	deploy_service
+                		;;
+                	destroy|DESTROY|stonith|STONITH)
                         # if the service exists, make sure its stopped.
-                ;;
-                maintinance|MAINTINANCE|maint|MAINT)
+                		;;
+                	maintinance|MAINTINANCE|maint|MAINT)
                         # In this mode we should just log the current state to allow the user to control
-                ;;
-                scheduled|SCHEDULED)
-                        logger -i "charkyd_agent: Scheduled service:\"${SERVICENAME}\", not yet deployed."
-                ;;
-                *)
-                        logger -i "charkyd_agent: WARNING Scheduled service: \"${SERVICENAME}\", unknown service state: \"${DESIRED_SERVICE_STATE}\""
-                ;;
+                		;;
+                	scheduled|SCHEDULED)
+                        	logger -i "charkyd_agent: Scheduled service:\"${SERVICENAME}\", not yet deployed."
+                		;;
+                	*)
+                        	logger -i "charkyd_agent: WARNING Scheduled service:\"${SERVICENAME}\", unknown service state:\"${DESIRED_SERVICE_STATE}\""
+                		;;
                 # A migrate using CRIU option would be cool.
 
                 # after changes we should resubmit basics on core and mem count. Although, this is somewhat outside the scpoe
@@ -338,8 +341,10 @@ do
 	# we can probably just pull this from the $wline var above to simplify this and reduce queries.
 	# although, with this method we could sweep the entire list for this host in case we missed
 	# something.
-	DESIRED_SERVICE_STATE=$(echo ${line} | sed 's/.*state://' | cut -d "," -f1)
-	SERVICENAME=$(echo ${line} | sed 's/.*servicename://' | cut -d "," -f1)
+	DESIRED_SERVICE_STATE=$(echo ${wline} | sed 's/.*state://' | cut -d "," -f1)
+	SERVICENAME=$(echo ${wline} | sed 's/.*servicename://' | cut -d "," -f1)
+	
+	logger -i "charkyd_agent: Service state change detected in ${WATCH_LOG}."
 
 	# Run desired action for service
 	service_state_case
