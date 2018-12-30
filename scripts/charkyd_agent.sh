@@ -163,6 +163,37 @@ stop_service()
         ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:stopped,pid:na,nodeid:${HOSTID},epoch:${EPOCH}
         }
 
+deploy_service()
+{
+# Run deployment shell `git clone ansible && ansible-playbook ...`
+logger -i "charkyd_agent: Deploying scheduled service: ${SERVICE_NAME_ORIG}"
+echo "NODEID=${NODEID}" > /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
+echo "NODE_IPV4=${NODE_IPV4}" >> /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
+echo "NODE_IPV6=${NODE_IPV6}" >> /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
+echo "NODE_FQDN=${NODE_FQDN}" >> /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
+echo ${DEPLOY_CMD} >> /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
+chmod +x /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
+/usr/bin/sh /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
+
+# On success of installing the service, submit the job to node or nodes (maybe
+# have monitoring service start the nodes like the previous version)
+
+# once deployment has been sucseccful delete the entry and add it to a 
+# /deployed/region/rack/nodeid location so that we can remove them if needed
+# or at least know what was deployed where.
+if [ $? -ne 0 ]
+then
+        logger -i "charkyd_agent: starting scheduled service: ${SERVICE_NAME_ORIG}"
+        ${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID} servicename:${SERVICE_NAME_ORIG},state:started
+        ${ETCDCTL_BIN} del ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG}
+
+else
+        ${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} ${line},servicestatus:failed
+        logger -i "charkyd_agent: WARNING Scheduled service: ${SERVICE_NAME_ORIG} failed deployment!"
+
+fi
+}
+
 
 #
 # This is where we check and update the status of the local service
@@ -181,6 +212,77 @@ watch_node_tasks()
         echo $! > ${NODE_TASK_WATCH_PID}
 }
 
+service_state_case()
+{
+                # could add a service type here to allow restarting of LXD or SWARM containers
+                # Or that could be a seperate script
+
+                # I should have an if here, if scheduler, or if monitor do it a little differnt
+                # This should include starting a lease for the status of the service.
+                # a seperate non node lease.
+                case ${DESIERED_SERVICE_STATE} in
+                start|START|started|STARTED|running)
+                        if [ "$(systemctl is-active ${SERVICENAME})" != 'active' ];
+                        then
+                                restart_service
+                        fi
+                ;;
+                stop|STOP|stopped|STOPPED|disabled)
+                        stop_service
+                ;;
+                restart|RESTART|restarted|RESTARTED)
+                        restart_service
+                ;;
+                pause|PAUSE|freeze|FREEZE)
+                        echo "Nothing to do now"
+                ;;
+                resume|RESUME|thaw|THAW)
+                        echo "Nothing to do now"
+                ;;
+                deploy|DEPLOY)
+                        echo "Deploying service"
+                        deploy_service
+                ;;
+                destroy|DESTROY|stonith|STONITH)
+                        # if the service exists, make sure its stopped.
+                ;;
+                maintinance|MAINTINANCE|maint|MAINT)
+                        # In this mode we should just log the current state to allow the user to control
+                ;;
+                scheduled|SCHEDULED)
+                        logger -i "charkyd_agent: Scheduled service:${SERVICENAME} not yet deployed."
+                ;;
+                *)
+                        logger -i "charkyd_agent: WARNING Scheduled service: ${SERVICENAME} unknown service state: ${DESIRED_SERVICE_STATE}"
+                ;;
+                # A migrate using CRIU option would be cool.
+
+                # after changes we should resubmit basics on core and mem count. Although, this is somewhat outside the scpoe
+                # and should be done by the application per say or nagios, icinga, or tick stack metrics. Lets not
+                # re-invent the wheel.
+                esac
+}
+
+launch_reaper_task()
+{
+	# This shoiuld launch a simple sub proccess or script that
+	# checks that all scheduled tasks for thjis node are in the
+	# desired state every x seconds.
+        # This should make use of the service_state_case
+	sleep ${REAPER_SLEEP}
+
+        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID} | grep -e "servicename:" -e "state:" | while read -r line
+        do
+                DESIRED_SERVICE_STATE=$(echo ${line} | sed 's/.*state://' | cut -d "," -f1)
+                SERVICENAME=$(echo ${line} | sed 's/.*servicename://' | cut -d "," -f1)
+
+                # Run desired action for service
+                service_state_case
+        done
+}
+
+# Launch the reaper task as a sub proccess (this may need to be it's own script)
+while /bin/true; do launch_reaper_task; done &
 
 # If it is already running maybe it triggered this so run through and start things. 
 if [ ! -f ${NODE_TASK_WATCH_PID} ]
@@ -227,51 +329,11 @@ do
 	# we can probably just pull this from the $wline var above to simplify this and reduce queries.
 	# although, with this method we could sweep the entire list for this host in case we missed
 	# something.
-	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID} | grep -e "servicename:" -e "state:" | while read -r line
-	do 
-		DESIRED_SERVICE_STATE=$(echo ${line} | sed 's/.*state://' | cut -d "," -f1)
-		SERVICENAME=$(echo ${line} | sed 's/.*servicename://' | cut -d "," -f1)
-		# could add a service type here to allow restarting of LXD or SWARM containers
-		# Or that could be a seperate script
+	DESIRED_SERVICE_STATE=$(echo ${line} | sed 's/.*state://' | cut -d "," -f1)
+	SERVICENAME=$(echo ${line} | sed 's/.*servicename://' | cut -d "," -f1)
 
-		# I should have an if here, if scheduler, or if monitor do it a little differnt
-		# This should include starting a lease for the status of the service.
-		# a seperate non node lease.
-   		case ${DESIERED_SERVICE_STATE} in
-		start|START|started|STARTED|running)
-			if [ "$(systemctl is-active ${SERVICENAME})" != 'active' ];
-			then 
-				restart_service 
-			fi
-	  	;;
-		stop|STOP|stopped|STOPPED|disabled)
-			stop_service
-		;;
-		restart|RESTART|restarted|RESTARTED)
-			restart_service
-		;;
-		pause|PAUSE|freeze|FREEZE)
-			echo "Nothing to do now"
-		;;
-		resume|RESUME|thaw|THAW)
-			echo "Nothing to do now"
-		;;
-		destroy|DESTROY|stonith|STONITH)
-			# if the service exists, make sure its stopped.
-		;;
-	  	scheduled|SCHEDULED)
-	  		logger -i "charkyd_agent: Scheduled service:${SERVICENAME} not yet deployed."
-		;;
-  		*)
-	  		logger -i "charkyd_agent: WARNING Scheduled service: ${SERVICENAME} unknown service state: ${DESIRED_SERVICE_STATE}"
-		;;
-		# A migrate using CRIU option would be cool.
-
-		# after changes we should resubmit basics on core and mem count. Although, this is somewhat outside the scpoe
-		# and should be done by the application per say or nagios, icinga, or tick stack metrics. Lets not
-		# re-invent the wheel.
-		esac
-	done
+	# Run desired action for service
+	service_state_case
   fi
 done< <(exec tail -fn0 ${WATCH_LOG})
 # Alternativly we could skip writing to disk and just exec the etcd watch 

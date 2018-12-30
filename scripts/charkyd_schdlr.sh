@@ -37,7 +37,11 @@
 # v.1 initial version
 #
 
-
+##
+## Ideas:
+##
+## If we ask for 3 of the same thing then we need to UUID the names, and allow for a group feild of some sort.
+##
 
 CONFIG=/etc/charkyd.conf
 
@@ -99,7 +103,7 @@ watch_scheduled()
 elect_monitor()
 {
         for i in $(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_NODES} | grep nodeid | sort -R | head -n${MONITOR_ELECTS} | sed 's/.*nodeid://' | cut -d "," -f1);
-	        do EPOCH=$(date +%s); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATE}/${REGION}/${RACK}/${i}/monitor_service servicename:monitor_service,unit_file:charkyd_monitor.service,replicas:1,nodeid:${i},epoch:${EPOCH},state:started;
+	        do EPOCH=$(date +%s); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATE}/${REGION}/${RACK}/${i}/${MONITOR_SERVICE_NAME} servicename:${MONITOR_SERVICE_NAME},unit_file:charkyd_monitor.service,replicas:1,nodeid:${i},epoch:${EPOCH},state:started;
         done
 }
 
@@ -113,10 +117,12 @@ elect_node()
 	NODEID=$(echo ${line} | sed 's/.*nodeid://' | cut -d "," -f1)
 }
 
-deploy_service()
+remote_deploy_service()
 {
+# in the scheduler script this should allow for the remote install. aka, run asnible
+# on this node against another.
 # Run deployment shell `git clone ansible && ansible-playbook ...`
-logger -i "charkyd_scheduler: Deploying scheduled service: ${SERVICE_NAME_ORIG}"
+logger -i "charkyd_scheduler: Remotly deploying scheduled service: ${SERVICE_NAME_ORIG}"
 echo "NODEID=${NODEID}" > /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
 echo "NODE_IPV4=${NODE_IPV4}" >> /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
 echo "NODE_IPV6=${NODE_IPV6}" >> /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
@@ -139,20 +145,34 @@ then
                        
 else
         ${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} ${line},servicestatus:failed
+        ${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID} servicename:${SERVICE_NAME_ORIG},state:deploy_failed
 	logger -i "charkyd_scheduler: WARNING Scheduled service: ${SERVICE_NAME_ORIG} failed deployment!"
 
 fi
+}
+
+agent_deploy_service()
+{
+        logger -i "charkyd_scheduler: agent deploy of service: ${SERVICE_NAME_ORIG}"
+        ${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID} servicename:${SERVICE_NAME_ORIG},state:deploy
+        ${ETCDCTL_BIN} del ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG}
 }
 
 # Spawn a service keep alive lease thing to report that this service is running
 create_scheduler_lease()
 {
         SCHED_LEASE=$(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease grant ${SCHED_LEASE_TTL} | cut -d " " -f 2 )
-        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${SCHED_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/scheduler_service nodeid:${HOSTID},fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,epoch:${EPOCH}
+        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${SCHED_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SCHEDULER_SERVICE_NAME} nodeid:${HOSTID},fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,epoch:${EPOCH}
         # Background a keepalive proccess for the scheduler service, so that if it stops the key is removed
         KEEPA_CMD="${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease keep-alive ${SCHED_LEASE}"
         nohup ${KEEPA_CMD} &
         echo $! > ${SCHED_LEASE_KEEPALIVE_PID}
+}
+
+start_scheduler_service()
+{
+        # should this advertise its running to its own agent service for restart?
+        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SCHEDULER_SERVICE_NAME} servicename:${SCHEDULER_SERVICE_NAME},unit_file:${SCHEDULER_SERVICE_NAME}.service,replicas:1,nodeid:${HOSTID},epoch:${EPOCH},state:started;
 }
 
 # check for the scheduler lease pid, if its not there start a new one, if it is kill the old
@@ -177,6 +197,8 @@ else
         fi
 fi
 
+# Notify our agent of our running state
+start_scheduler_service
 
 # Notify systemd that we are ready
 systemd-notify --ready --status="charkyd now watching for services to schedule"
@@ -229,6 +251,7 @@ do
 		SERVICE_REGION=$(echo ${line} | sed 's/.*serviceregion://' | cut -d "," -f1)
 		SERVICE_RACK=$(echo ${line} | sed 's/.*servicerack://' | cut -d "," -f1)
 		SCHEDULER_NODE=$(echo ${line} | sed 's/.*schedulernode://' | cut -d "," -f1)
+		DEPLOY_METHOD=$(echo ${line} | sed 's/.*deploymethod://' | cut -d "," -f1)
 		# I should have a delimited list of possible or prefered nodes to run on
 
 		# on new job select nodes from correct rack, reagion, <alt>, node specific.
@@ -259,20 +282,34 @@ do
 			logger -i "charkyd_scheduler: Scheduler accepting service into queue"
 			if [ ${REPLICAS} -le 1 ]
 			then
-				if [ ${SERVICE_NODE} = "none" ]
-				then
+				case ${SERVICE_NODE} in
+				none)
 					logger -i "charkyd_scheduler: Scheduler electing node for service"
 					elect_node
-					deploy_service
+					if [ ${DEPLOY_METHOD} == "remote" ]
+					then
+						# run the deploy script on this host, aka ansible ssh to another
+						remote_deploy_service
+					else
+						# set it to deploy in the service state queue, forcing the local agent to
+						# run it
+						agent_deploy_service
+					fi
 				else
-					logger -i "charkyd_scheduler: Scheduler deploying service"
+					logger -i "charkyd_scheduler: Scheduler remote deploying service"
 					NODEID=${SERVICE_NODE}
 					${ETCDCTL_BIN} get --prefix ${NODE_SEARCH_PREFIX} | grep nodeid
 				        NODE_IPV4=$(echo ${line} | sed 's/.*ipv4://' | cut -d "," -f1)
 				        NODE_IPV6=$(echo ${line} | sed 's/.*ipv6://' | cut -d "," -f1)
 				        NODE_FQDN=$(echo ${line} | sed 's/.*fqdn://' | cut -d "," -f1)
-				        NODEID=$(echo ${line} | sed 's/.*nodeid://' | cut -d "," -f1)
-					deploy_service
+					NODEID=$(echo ${line} | sed 's/.*nodeid://' | cut -d "," -f1)
+                                        if [ ${DEPLOY_METHOD} == "remote" ]
+                                        then
+                                                remote_deploy_service
+                                        else
+                                                # set it to deploy in the service state queue
+						agent_deploy_service
+                                        fi
 				fi
 
 			elif [ ${REPLICAS} -gt 1 ]
@@ -285,7 +322,13 @@ do
 					# This needs fixed to not deploy on the same node, not just the last used
 					if [ ${PREV_NODE} != ${NODEID} ]
 					then
-			        		deploy_service
+                                        	if [ ${DEPLOY_METHOD} == "remote" ]
+                                        	then
+                                                	remote_deploy_service
+                                        	else
+                                                	# set it to deploy in the service state queue
+                                                	agent_deploy_service
+                                        	fi
 						PREV_NODE=${NODEID}
 						i=$(( $i + 1 ))
 					fi
