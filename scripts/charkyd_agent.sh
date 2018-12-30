@@ -209,6 +209,7 @@ watch_node_tasks()
 	# to not log the puts and other info I could probably do this
         #nohup ${TASKW_CMD} | grep servicename >> ${WATCH_LOG} 2>&1&
 	# This didnt work, I even tried it on the TASKW_CMD
+	logger -i "charkyd_agent: Node watch task started PID:${NODE_TASK_WATCH_PID}."
         echo $! > ${NODE_TASK_WATCH_PID}
 }
 
@@ -216,7 +217,7 @@ service_state_case()
 {
                 # could add a service type here to allow restarting of LXD or SWARM containers
                 # Or that could be a seperate script
-
+		logger -i "charkyd_agent: Checking state of scheduled service:${SERVICENAME}."
                 # I should have an if here, if scheduler, or if monitor do it a little differnt
                 # This should include starting a lease for the status of the service.
                 # a seperate non node lease.
@@ -250,10 +251,10 @@ service_state_case()
                         # In this mode we should just log the current state to allow the user to control
                 ;;
                 scheduled|SCHEDULED)
-                        logger -i "charkyd_agent: Scheduled service:${SERVICENAME} not yet deployed."
+                        logger -i "charkyd_agent: Scheduled service:\"${SERVICENAME}\", not yet deployed."
                 ;;
                 *)
-                        logger -i "charkyd_agent: WARNING Scheduled service: ${SERVICENAME} unknown service state: ${DESIRED_SERVICE_STATE}"
+                        logger -i "charkyd_agent: WARNING Scheduled service: \"${SERVICENAME}\", unknown service state: \"${DESIRED_SERVICE_STATE}\""
                 ;;
                 # A migrate using CRIU option would be cool.
 
@@ -265,24 +266,30 @@ service_state_case()
 
 launch_reaper_task()
 {
+	while /bin/true
+	do
 	# This shoiuld launch a simple sub proccess or script that
 	# checks that all scheduled tasks for thjis node are in the
 	# desired state every x seconds.
         # This should make use of the service_state_case
-	sleep ${REAPER_SLEEP}
+		logger -i "charkyd_agent: ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID} | grep -e \"servicename:\" -e \"state:\""
+	        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID} | grep -e "servicename:" -e "state:" | while read -r line; do
+			logger -i "charkyd_agent: Verifying state of scheduled services via reaper task."
+                	DESIRED_SERVICE_STATE=$(echo ${line} | sed 's/.*state://' | cut -d "," -f1)
+                	SERVICENAME=$(echo ${line} | sed 's/.*servicename://' | cut -d "," -f1)
 
-        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID} | grep -e "servicename:" -e "state:" | while read -r line
-        do
-                DESIRED_SERVICE_STATE=$(echo ${line} | sed 's/.*state://' | cut -d "," -f1)
-                SERVICENAME=$(echo ${line} | sed 's/.*servicename://' | cut -d "," -f1)
-
-                # Run desired action for service
-                service_state_case
-        done
+                	# Run desired action for service
+          	      	service_state_case
+       		done
+		sleep ${REAPER_SLEEP}
+	done
 }
 
+echo "charkyd_agent: ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID} | grep -e \"servicename:\" -e \"state:\""
+logger -i "charkyd_agent: ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID} | grep -e \"servicename:\" -e \"state:\""
+
 # Launch the reaper task as a sub proccess (this may need to be it's own script)
-while /bin/true; do launch_reaper_task; done &
+launch_reaper_task &
 
 # If it is already running maybe it triggered this so run through and start things. 
 if [ ! -f ${NODE_TASK_WATCH_PID} ]
@@ -294,6 +301,8 @@ else
         	watch_node_tasks
         fi
 fi
+
+# Check if a scheduler is currently running and if not start one on a randome node.
 
 # Notify systemd that we are ready
 systemd-notify --ready --status="charkyd now watching for services to run"
