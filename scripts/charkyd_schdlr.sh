@@ -206,7 +206,7 @@ systemd-notify --ready --status="charkyd now watching for services to schedule"
 logger -i "charkyd_scheduler: Scheduler service now running."
 
 # Check for running monitors and start one if none are availble
-MONITOR_COUNT=$(${ETCDCTL_BIN} get --prefix ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/monitor_service | grep nodeid | wc -l)
+MONITOR_COUNT=$(${ETCDCTL_BIN} get --prefix ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SCHEDULER_SERVICE_NAME} | grep nodeid | wc -l)
 if [ ${MONITOR_COUNT} -eq 0 ]
 then
 	logger -i "charkyd_scheduler: WARNING: No monitor services found. Attempting to schedule one."
@@ -229,6 +229,8 @@ do
 	${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/ ${NEWLINE};
 
 	# Wait and see if another node beat us to the job
+
+	# add a random interval to the sleep window
 	sleep ${ELECTION_SLEEP}
 
 	logger -i "charkyd_scheduler: Scheduler atempting to claim job "
@@ -253,7 +255,16 @@ do
 		SERVICE_RACK=$(echo ${line} | sed 's/.*servicerack://' | cut -d "," -f1)
 		SCHEDULER_NODE=$(echo ${line} | sed 's/.*schedulernode://' | cut -d "," -f1)
 		DEPLOY_METHOD=$(echo ${line} | sed 's/.*deploymethod://' | cut -d "," -f1)
+		SERVICE_STATUS=$(echo ${line} | sed 's/.*servicestatus://' | cut -d "," -f1)	
 		# I should have a delimited list of possible or prefered nodes to run on
+
+
+		# If the servicedeploy status is failed, break from this and alert
+		if [ ${SERVICE_STATUS} == "failed" ]
+		then
+			logger -i "charkyd_scheduler: ERROR: Scheduler service: ${SERVICE_NAME_ORIG}, deployment failed!"
+			break
+		fi
 
 		# on new job select nodes from correct rack, reagion, <alt>, node specific.
 		# choose node to run on

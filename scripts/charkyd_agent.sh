@@ -56,6 +56,9 @@ WATCH_LOG=/var/log/charkyd_agentwatch.log
 # config options (these should be stored as factors on the node)
 # putting these here for now, they should be in the config file
 export ETCDCTL_API=3
+# Idea: allow for multiple raft db backends via wrapper script
+# make commands generic here and if the db doesnt support something
+# like watch, drop back to reaper mode only.
 ETCDCTL_BIN=/usr/local/bin/etcdctl
 # these should be differnt, more like
 #//charkyd/${API_VERSION}/${NAMESPACE}/${REGION}/${RACK}/${NODE}/status/
@@ -145,23 +148,51 @@ fi
 restart_service()
 {
 	logger -i "charkyd_agent: Service:\"${SERVICENAME}\", attempting restart."
-        systemctl restart ${SERVICENAME}.service && \
-	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:restarted,pid:na,nodeid:${HOSTID},epoch:${EPOCH} || \
-	logger -i "charkyd_agent: ERROR: Service:\"${SERVICENAME}\", failed restart."
+	restart_service_state=1
+        systemctl restart ${SERVICENAME}.service || restart_service_state=0
+
+	if [ ${restart_service_state} -eq 0 ]
+	then
+		service_state_failures=$(( ${service_state_failures} + 1 ))
+		logger -i "charkyd_agent: ERROR: Service:\"${SERVICENAME}\", failed restart."
+		${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:failed_restart,pid:na,nodeid:${HOSTID},epoch:${EPOCH},failures:${service_state_failures}
+	else
+		logger -i "charkyd_agent: Service:\"${SERVICENAME}\", restarted."
+		${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:restarted,pid:na,nodeid:${HOSTID},epoch:${EPOCH},failures:0
+	fi
+		
 }
 
 start_service()
 {
 	logger -i "charkyd_agent: Service:\"${SERVICENAME}\", attempting start."
-        systemctl start ${SERVICENAME}.service
-        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:started,pid:na,nodeid:${HOSTID},epoch:${EPOCH}
+	start_service_state=1
+        systemctl start ${SERVICENAME}.service || start_service_state=0
+	if [ ${start_service_state} -eq 0 ]
+	then
+		logger -i "charkyd_agent: ERROR: Service:\"${SERVICENAME}\", failed start."
+		service_state_failures=$(( ${service_state_failures} + 1 ))
+        	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:failed_start,pid:na,nodeid:${HOSTID},epoch:${EPOCH},failures:${service_state_failures}
+	else
+		logger -i "charkyd_agent: Service:\"${SERVICENAME}\", started."
+        	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:started,pid:na,nodeid:${HOSTID},epoch:${EPOCH},failures:0
+	fi
         }
 
 stop_service()
 {
 	logger -i "charkyd_agent: Service:\"${SERVICENAME}\", attempting stop."
-        systemctl stop ${SERVICENAME}.service
-        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:stopped,pid:na,nodeid:${HOSTID},epoch:${EPOCH}
+	stop_service_state=1
+        systemctl stop ${SERVICENAME}.service || stop_service_state=0
+	if [ ${start_service_state} -eq 0 ]
+	then
+	        logger -i "charkyd_agent: ERROR: Service:\"${SERVICENAME}\", failed stop."
+	        service_state_failures=$(( ${service_state_failures} + 1 ))
+        	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:failed_stop,pid:na,nodeid:${HOSTID},epoch:${EPOCH},failures:${service_state_failures}
+	else
+	        logger -i "charkyd_agent: ERROR: Service:\"${SERVICENAME}\", stopped."
+        	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:stopped,pid:na,nodeid:${HOSTID},epoch:${EPOCH},failures:0
+	fi
         }
 
 deploy_service()
@@ -190,6 +221,7 @@ then
 
 else
         ${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} ${line},servicestatus:failed
+	${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} servicename:${SERVICE_NAME_ORIG},state:deploy_failed
         logger -i "charkyd_agent: WARNING Scheduled service: ${SERVICE_NAME_ORIG} failed deployment!"
 
 fi
@@ -219,6 +251,13 @@ service_state_case()
                 # could add a service type here to allow restarting of LXD or SWARM containers
                 # Or that could be a seperate script
 		logger -i "charkyd_agent: Checking that desired state of scheduled service:\"${SERVICENAME}\", is \"${DESIRED_SERVICE_STATE}\"."
+
+		# Check if the service has failed start to amny times to try again.
+		service_state_failures=0
+		while read state_line
+		do
+			service_state_failures=$(echo ${state_line} | sed 's/.*failures://' | cut -d "," -f1)
+		done< <(exec tail ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} | grep "service:")
                 # I should have an if here, if scheduler, or if monitor do it a little differnt
                 # This should include starting a lease for the status of the service.
                 # a seperate non node lease.
@@ -247,6 +286,9 @@ service_state_case()
                 	deploy|DEPLOY)
                         	echo "Deploying service"
                         	deploy_service
+				;;
+			deploy_failed)
+				logger -i "charkyd_agent: ERROR: Skipping service:\"${SERVICENAME}\", deployment failed!"
                 		;;
                 	destroy|DESTROY|stonith|STONITH)
                         # if the service exists, make sure its stopped.
