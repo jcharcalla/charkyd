@@ -257,7 +257,7 @@ do
 
 	logger -i "charkyd_scheduler: Scheduler atempting to claim job "
 	# check if any other schduler has claimed it after us
-	VERIFY_SCHEDW=$(${ETCDCTL_BIN} get --prefix ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} | sed 's/.*schedulernode://' | cut -d "," -f1)
+	VERIFY_SCHEDW=$(${ETCDCTL_BIN} get --prefix ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} | grep "servicename:"| sed 's/.*schedulernode://' | cut -d "," -f1)
 	echo "charkyd_scheduler: verify line hostid:${VERIFY_SCHEDW}"
 	if [ ${HOSTID} == ${VERIFY_SCHEDW} ]
 	then
