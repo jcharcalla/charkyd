@@ -229,6 +229,7 @@ stop_service()
 deploy_service()
 {
 SERVICE_NAME_ORIG=${SERVICENAME}
+line=${wline}
 # Run deployment shell `git clone ansible && ansible-playbook ...`
 logger -i "charkyd_agent: Deploying scheduled service: ${SERVICE_NAME_ORIG}"
 echo "NODEID=${NODEID}" > /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
@@ -248,11 +249,23 @@ chmod +x /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
 if [ $? -ne 0 ]
 then
         logger -i "charkyd_agent: starting scheduled service: ${SERVICE_NAME_ORIG}"
-        ${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} servicename:${SERVICE_NAME_ORIG},state:started
+        #${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} servicename:${SERVICE_NAME_ORIG},state:started
+	${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} servicename:${SERVICE_NAME_ORIG},state:started,nodeid:${HOSTID},fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,epoch:${EPOCH}
         ${ETCDCTL_BIN} del ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG}
 
 else
-        ${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} ${line},servicestatus:failed
+        # get the proper line from the scheduled queue here
+	SCHEDLINE=$(${ETCDCTL_BIN} get --prefix ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} | grep "servicename:")
+        SCHEDNEWLINE=$(echo ${SCHEDLINE} | sed "s/servicestatus:agent_deploy/servicestatus:failed/g")
+	echo "charkys_agent: debug: ${ETCDCTL_BIN} get --prefix ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} | grep \"servicename:\""
+	echo "charkys_agent: debug: SCHEDNEWLINE: ${SCHEDNEWLINE}"
+        NEWLINE=$(echo ${line} | sed "s/state:deploy/state:deploy_failed/g")
+	echo "charkys_agent: debug: NEWLINE: ${NEWLINE}"
+        ${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} "${SCHEDNEWLINE}"
+        # I think this should be putting to the scheduled queue, it would need to update this in the 
+        # case of a remote install
+        ${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} "${NEWLINE}"
+#        ${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} ${line},servicestatus:failed
 	#${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} servicename:${SERVICE_NAME_ORIG},state:deploy_failed
         logger -i "charkyd_agent: WARNING Scheduled service: ${SERVICE_NAME_ORIG} failed deployment!"
 

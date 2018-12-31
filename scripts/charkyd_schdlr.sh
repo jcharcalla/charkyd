@@ -151,10 +151,13 @@ then
         ${ETCDCTL_BIN} del ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG}
                        
 else
-	NEWLINE=$(echo ${line} | sed "s/servicestatus:deploy/servicestatus:failed/g")
-        ${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} "${NEWLINE}"
-	# I think this should be putting to the scheduled queue
-        #${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} servicename:${SERVICE_NAME_ORIG},state:deploy_failed
+	# get the proper line from the scheduled queue here
+	SCHEDNEWLINE=$(echo ${SCHEDLINE} | sed "s/servicestatus:acknowledged/servicestatus:failed/g")
+	NEWLINE=$(echo ${line} | sed "s/state:deploy/state:deploy_failed/g")
+        ${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} "${SCHEDNEWLINE}"
+	# I think this should be putting to the scheduled queue, it would need to update this in the 
+	# case of a remote install
+        ${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} "${NEWLINE}"
 	logger -i "charkyd_scheduler: WARNING Scheduled service: ${SERVICE_NAME_ORIG} failed deployment!"
 
 fi
@@ -164,7 +167,9 @@ agent_deploy_service()
 {
         logger -i "charkyd_scheduler: agent deploy of service: ${SERVICE_NAME_ORIG}"
         ${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} servicename:${SERVICE_NAME_ORIG},state:deploy,nodeid:${HOSTID},fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,epoch:${EPOCH}
-        ${ETCDCTL_BIN} del ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG}
+	# may want to have this update the key
+        SCHEDNEWLINE=$(echo ${line} | sed "s/servicestatus:acknowledged/servicestatus:agent_deploy/g")
+        ${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} "${SCHEDNEWLINE}"
 }
 
 # Spawn a service keep alive lease thing to report that this service is running
@@ -248,16 +253,22 @@ do
 	elif [ ${SERVICE_STATUS} == "failed" ]
 	then
 			logger -i "charkyd_scheduler: ERROR: Scheduler service: ${SERVICE_NAME_ORIG}, deployment in failed state!"
-	else	
-
+	elif [ ${SERVICE_STATUS} == "agent_deploy" ]
+	then
+			logger -i "charkyd_scheduler: Scheduler service: ${SERVICE_NAME_ORIG}, in agent_deploy mode"
+	elif [ ${SERVICE_STATUS} == "acknowledged" ]
+	then
 	# Wait and see if another node beat us to the job
 
+	logger -i "charkyd_scheduler: Scheduler sleeping before atempting to claim job "
 	# add a random interval to the sleep window
 	sleep ${ELECTION_SLEEP}
 
 	logger -i "charkyd_scheduler: Scheduler atempting to claim job "
 	# check if any other schduler has claimed it after us
-	VERIFY_SCHEDW=$(${ETCDCTL_BIN} get --prefix ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} | grep "servicename:"| sed 's/.*schedulernode://' | cut -d "," -f1)
+	SCHEDLINE=$(${ETCDCTL_BIN} get --prefix ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} | grep "servicename:")
+	VERIFY_SCHEDW=$(echo ${SCHEDLINE} | sed 's/.*schedulernode://' | cut -d "," -f1)
+
 	echo "charkyd_scheduler: verify line hostid:${VERIFY_SCHEDW}"
 	if [ ${HOSTID} == ${VERIFY_SCHEDW} ]
 	then
@@ -287,6 +298,10 @@ do
 		if [ ${SERVICE_STATUS} == "failed" ]
 		then
 			logger -i "charkyd_scheduler: ERROR: Scheduler service: ${SERVICE_NAME_ORIG}, deployment failed!"
+			SKIP_SERVICE=1
+		elif [ ${SERVICE_STATUS} == "agent_deploy" ]
+		then
+			logger -i "charkyd_scheduler: Scheduler service: ${SERVICE_NAME_ORIG}, agent_deploy method. Skipping..."
 			SKIP_SERVICE=1
 		fi
 
@@ -395,10 +410,13 @@ do
                         logger -i "charkyd_scheduler: WARNING Scheduled service: ${SERVICE_NAME_ORIG} unknown region!"
 		fi
 
-                logger -i "charkyd_scheduler: WARNING Scheduled service: ${SERVICE_NAME_ORIG} not for this host!"
+	else
+                logger -i "charkyd_scheduler: WARNING Scheduled service: ${SERVICE_NAME_ORIG} hostid does not match"
+	fi
+	fi
 
-	fi
-	fi
+   else
+	   logger -i "charkyd_scheduler: ERROR: Servicename not found in line!"
    fi
 done< <(exec tail -fn0 ${SCHEDULE_WATCH_LOG})
 
