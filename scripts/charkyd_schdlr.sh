@@ -80,6 +80,13 @@ PREFIX_NODES=/charkyd/${API_VERSION}/${NAMESPACE}/nodes
 MONITOR_MIN=3
 MONITOR_ELECTS=1
 
+# Dynamic variables.
+NUMPROC=$(nproc --all)
+TOTMEM=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+TOTMEM=$((TOTMEM/102400))
+FQDN=`nslookup $(hostname -f) | grep "Name:" | cut -d":" -f2 | xargs`
+IPV4=`nslookup $(hostname -f) | grep "Name:" -A1 | tail -n1 | cut -d":" -f2 | xargs`
+EPOCH=$(date +%s)
 
 ##
 ## Functions
@@ -103,7 +110,7 @@ watch_scheduled()
 elect_monitor()
 {
         for i in $(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_NODES} | grep nodeid | sort -R | head -n${MONITOR_ELECTS} | sed 's/.*nodeid://' | cut -d "," -f1);
-	        do EPOCH=$(date +%s); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATE}/${REGION}/${RACK}/${i}/${MONITOR_SERVICE_NAME} servicename:${MONITOR_SERVICE_NAME},unit_file:charkyd_monitor.service,replicas:1,nodeid:${i},epoch:${EPOCH},state:started;
+	        do EPOCH=$(date +%s); ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATE}/${REGION}/${RACK}/${i}/${MONITOR_SERVICE_NAME} servicename:${MONITOR_SERVICE_NAME},unit_file:${MONITOR_SERVICE_NAME}.service,replicas:1,nodeid:${i},epoch:${EPOCH},state:started,failures:0;
         done
 }
 
@@ -140,13 +147,14 @@ chmod +x /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
 if [ $? -ne 0 ]
 then
         logger -i "charkyd_scheduler: starting scheduled service: ${SERVICE_NAME_ORIG}"
-        ${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} servicename:${SERVICE_NAME_ORIG},state:started
+        ${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} servicename:${SERVICE_NAME_ORIG},state:started,nodeid:${HOSTID},fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,epoch:${EPOCH}
         ${ETCDCTL_BIN} del ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG}
                        
 else
-        ${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} ${line},servicestatus:failed
+	NEWLINE=$(echo ${line} | sed "s/servicestatus:deploy/servicestatus:failed/g")
+        ${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} "${NEWLINE}"
 	# I think this should be putting to the scheduled queue
-        ${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} servicename:${SERVICE_NAME_ORIG},state:deploy_failed
+        #${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} servicename:${SERVICE_NAME_ORIG},state:deploy_failed
 	logger -i "charkyd_scheduler: WARNING Scheduled service: ${SERVICE_NAME_ORIG} failed deployment!"
 
 fi
@@ -155,7 +163,7 @@ fi
 agent_deploy_service()
 {
         logger -i "charkyd_scheduler: agent deploy of service: ${SERVICE_NAME_ORIG}"
-        ${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} servicename:${SERVICE_NAME_ORIG},state:deploy
+        ${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} servicename:${SERVICE_NAME_ORIG},state:deploy,nodeid:${HOSTID},fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,epoch:${EPOCH}
         ${ETCDCTL_BIN} del ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG}
 }
 
@@ -163,7 +171,7 @@ agent_deploy_service()
 create_scheduler_lease()
 {
         SCHED_LEASE=$(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease grant ${SCHED_LEASE_TTL} | cut -d " " -f 2 )
-        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${SCHED_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SCHEDULER_SERVICE_NAME} nodeid:${HOSTID},fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,epoch:${EPOCH}
+        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${SCHED_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SCHEDULER_SERVICE_NAME} servicename:${SERVICE_NAME_ORIG},nodeid:${HOSTID},fqdn:${FQDN},ipv4:${IPV4},ipv6:na,opts:na,epoch:${EPOCH}
         # Background a keepalive proccess for the scheduler service, so that if it stops the key is removed
         KEEPA_CMD="${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} lease keep-alive ${SCHED_LEASE}"
         nohup ${KEEPA_CMD} &
@@ -206,7 +214,7 @@ systemd-notify --ready --status="charkyd now watching for services to schedule"
 logger -i "charkyd_scheduler: Scheduler service now running."
 
 # Check for running monitors and start one if none are availble
-MONITOR_COUNT=$(${ETCDCTL_BIN} get --prefix ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SCHEDULER_SERVICE_NAME} | grep nodeid | wc -l)
+MONITOR_COUNT=$(${ETCDCTL_BIN} get --prefix ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${MONITOR_SERVICE_NAME} | grep nodeid | wc -l)
 if [ ${MONITOR_COUNT} -eq 0 ]
 then
 	logger -i "charkyd_scheduler: WARNING: No monitor services found. Attempting to schedule one."
@@ -221,12 +229,26 @@ fi
 logger -i "charkyd_scheduler: debug entering loop."
 while read line;
 do
+    if echo ${line} | grep -q "servicename"
+    then
 	# take the job, aka update key. then wait and query the key again to make 
 	# sure we have it claimed add something like "scheduler:thisnode"
 	# Update status, maybe rename via delete
-	logger -i "charkyd_scheduler: Scheduler acknowledging job. "
-	NEWLINE=$(echo ${line} | sed "s/schedulernode:none/schedulernode:${HOSTID}/g")
-	${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/ ${NEWLINE};
+	SERVICE_STATUS=$(echo ${line} | sed 's/.*servicestatus://' | cut -d "," -f1)
+	SERVICE_NAME_ORIG=$(echo ${line} | sed 's/.*servicename://' | cut -d "," -f1)
+	echo ${SERVICE_STATUS}
+	if [ ${SERVICE_STATUS} == "deploy" ]
+	then
+		NEWLINE=$(echo ${line} | sed "s/schedulernode:none/schedulernode:${HOSTID}/g")
+		NEWLINE=$(echo ${NEWLINE} | sed "s/servicestatus:deploy/servicestatus:acknowledged/g")
+		#NEWLINE="${NEWLINE},schedulerstatus:acknowledged"
+		logger -i "charkyd_scheduler: Scheduler acknowledging job: \"${SERVICE_NAME_ORIG}\". "
+		echo ${NEWLINE}
+		${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} "${NEWLINE}";
+	elif [ ${SERVICE_STATUS} == "failed" ]
+	then
+			logger -i "charkyd_scheduler: ERROR: Scheduler service: ${SERVICE_NAME_ORIG}, deployment in failed state!"
+	else	
 
 	# Wait and see if another node beat us to the job
 
@@ -235,8 +257,9 @@ do
 
 	logger -i "charkyd_scheduler: Scheduler atempting to claim job "
 	# check if any other schduler has claimed it after us
-	VERIFY_SCHEDW="${ETCDCTL_BIN} get --prefix ${PREFIX_SCHEDULED}/ | grep "scheduler:${HOSTID}""
-	if [ ${NEWLINE} = ${VERIFY_SCHEDW} ]
+	VERIFY_SCHEDW=$(${ETCDCTL_BIN} get --prefix ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} | sed 's/.*schedulernode://' | cut -d "," -f1)
+	echo "charkyd_scheduler: verify line hostid:${VERIFY_SCHEDW}"
+	if [ ${HOSTID} == ${VERIFY_SCHEDW} ]
 	then
 		logger -i "charkyd_scheduler: Scheduler accepted new job"
 		# Set this in case we decide not to deploy it
@@ -256,6 +279,7 @@ do
 		SCHEDULER_NODE=$(echo ${line} | sed 's/.*schedulernode://' | cut -d "," -f1)
 		DEPLOY_METHOD=$(echo ${line} | sed 's/.*deploymethod://' | cut -d "," -f1)
 		SERVICE_STATUS=$(echo ${line} | sed 's/.*servicestatus://' | cut -d "," -f1)	
+		SCHEDULER_STATUS=$(echo ${line} | sed 's/.*schedulerstatus://' | cut -d "," -f1)
 		# I should have a delimited list of possible or prefered nodes to run on
 
 
@@ -263,7 +287,7 @@ do
 		if [ ${SERVICE_STATUS} == "failed" ]
 		then
 			logger -i "charkyd_scheduler: ERROR: Scheduler service: ${SERVICE_NAME_ORIG}, deployment failed!"
-			break
+			SKIP_SERVICE=1
 		fi
 
 		# on new job select nodes from correct rack, reagion, <alt>, node specific.
@@ -347,8 +371,8 @@ do
 						i=$(( $i + 1 ))
 					fi
 				done
-			else
-					${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} ${line},servicestatus:failed
+			else		NEWLINE=$(echo ${line} | sed "s/servicestatus:deploy/servicestatus:failed/g")
+					${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} "${NEWLINE}"
                         		logger -i "charkyd_scheduler: WARNING Invalid replica count for service: ${SERVICE_NAME_ORIG} Deployment Failed!"
 					SKIP_SERVICE=1
 			fi
@@ -367,13 +391,15 @@ do
 		else
 			# This service is outside of my region, not sure why this would ever be a problem
 			# in a real world scenario. Give it back to the scheduler
-			${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} ${line}
+			${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} "${line}"
                         logger -i "charkyd_scheduler: WARNING Scheduled service: ${SERVICE_NAME_ORIG} unknown region!"
 		fi
 
+                logger -i "charkyd_scheduler: WARNING Scheduled service: ${SERVICE_NAME_ORIG} not for this host!"
 
 	fi
-
+	fi
+   fi
 done< <(exec tail -fn0 ${SCHEDULE_WATCH_LOG})
 
 

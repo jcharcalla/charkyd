@@ -30,6 +30,13 @@
 # and a snopshot of it prior to shutdown, so that it can be resubmitted in the
 # correct order on power up.
 
+##
+## There should be a local state cache <file>, maybe just the log, 
+## which could be used if we loose etcd connectivity. maybe this is what happebs during maintinance
+## actually, if you need to take down etcd. then stop the service 1st.
+## if we lose connection to the db, do we stay up or kill all?
+##
+
 # If there is no config file create one and create a host id
 CONFIG=/etc/charkyd.conf
 
@@ -74,6 +81,8 @@ PREFIX_STATUS=/charkyd/${API_VERSION}/${NAMESPACE}/services/status
 PREFIX_NODES=/charkyd/${API_VERSION}/${NAMESPACE}/nodes
 MONITOR_MIN=3
 MONITOR_ELECTS=1
+SCHEDULER_STATE_CHECK=5
+MAX_SERVICE_STATE_FAILURES=6
 
 
 # Dynamic variables.
@@ -149,16 +158,27 @@ restart_service()
 {
 	logger -i "charkyd_agent: Service:\"${SERVICENAME}\", attempting restart."
 	restart_service_state=1
+	# if this is a schduler or monitor dont put a lease on the key
+	# those services put there own lease on the status key
+	put_lease="--lease=${NODE_LEASE}"
+	if [ ${SCHEDULER_SERVICE_NAME} == ${SERVICENAME} ]
+	then
+		put_lease=""
+	elif [ ${MONITOR_SERVICE_NAME} == ${SERVICENAME} ]
+	then
+		put_lease=""
+	fi
+
         systemctl restart ${SERVICENAME}.service || restart_service_state=0
 
 	if [ ${restart_service_state} -eq 0 ]
 	then
 		service_state_failures=$(( ${service_state_failures} + 1 ))
 		logger -i "charkyd_agent: ERROR: Service:\"${SERVICENAME}\", failed restart."
-		${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:failed_restart,pid:na,nodeid:${HOSTID},epoch:${EPOCH},failures:${service_state_failures}
+		${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${put_lease} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:failed_restart,pid:na,nodeid:${HOSTID},epoch:${EPOCH},failures:${service_state_failures}
 	else
 		logger -i "charkyd_agent: Service:\"${SERVICENAME}\", restarted."
-		${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:restarted,pid:na,nodeid:${HOSTID},epoch:${EPOCH},failures:0
+		${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${put_lease} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:restarted,pid:na,nodeid:${HOSTID},epoch:${EPOCH},failures:0
 	fi
 		
 }
@@ -167,15 +187,26 @@ start_service()
 {
 	logger -i "charkyd_agent: Service:\"${SERVICENAME}\", attempting start."
 	start_service_state=1
+        # if this is a schduler or monitor dont put a lease on the key
+        # those services put there own lease on the status key
+        put_lease="--lease=${NODE_LEASE}"
+        if [ ${SCHEDULER_SERVICE_NAME} == ${SERVICENAME} ]
+        then    
+                put_lease=""
+        elif [ ${MONITOR_SERVICE_NAME} == ${SERVICENAME} ]
+        then    
+                put_lease=""
+        fi
+
         systemctl start ${SERVICENAME}.service || start_service_state=0
 	if [ ${start_service_state} -eq 0 ]
 	then
 		logger -i "charkyd_agent: ERROR: Service:\"${SERVICENAME}\", failed start."
 		service_state_failures=$(( ${service_state_failures} + 1 ))
-        	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:failed_start,pid:na,nodeid:${HOSTID},epoch:${EPOCH},failures:${service_state_failures}
+        	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${put_lease} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:failed_start,pid:na,nodeid:${HOSTID},epoch:${EPOCH},failures:${service_state_failures}
 	else
 		logger -i "charkyd_agent: Service:\"${SERVICENAME}\", started."
-        	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:started,pid:na,nodeid:${HOSTID},epoch:${EPOCH},failures:0
+        	${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${put_lease} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} service:${SERVICENAME},status:started,pid:na,nodeid:${HOSTID},epoch:${EPOCH},failures:0
 	fi
         }
 
@@ -197,6 +228,7 @@ stop_service()
 
 deploy_service()
 {
+SERVICE_NAME_ORIG=${SERVICENAME}
 # Run deployment shell `git clone ansible && ansible-playbook ...`
 logger -i "charkyd_agent: Deploying scheduled service: ${SERVICE_NAME_ORIG}"
 echo "NODEID=${NODEID}" > /tmp/${NODEID}.${SERVICE_NAME_ORIG}.deploy.sh
@@ -221,12 +253,17 @@ then
 
 else
         ${ETCDCTL_BIN} put ${PREFIX_SCHEDULED}/${SERVICE_NAME_ORIG} ${line},servicestatus:failed
-	${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} servicename:${SERVICE_NAME_ORIG},state:deploy_failed
+	#${ETCDCTL_BIN} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SERVICE_NAME_ORIG} servicename:${SERVICE_NAME_ORIG},state:deploy_failed
         logger -i "charkyd_agent: WARNING Scheduled service: ${SERVICE_NAME_ORIG} failed deployment!"
 
 fi
 }
 
+start_scheduler_service()
+{
+        # should this advertise its running to its own agent service for restart?
+        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID}/${SCHEDULER_SERVICE_NAME} servicename:${SCHEDULER_SERVICE_NAME},unit_file:${SCHEDULER_SERVICE_NAME}.service,replicas:1,nodeid:${HOSTID},epoch:${EPOCH},state:started,failures:0;
+}
 
 #
 # This is where we check and update the status of the local service
@@ -257,7 +294,15 @@ service_state_case()
 		while read state_line
 		do
 			service_state_failures=$(echo ${state_line} | sed 's/.*failures://' | cut -d "," -f1)
-		done< <(exec tail ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} put --lease=${NODE_LEASE} ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} | grep "service:")
+		done< <(exec ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get ${PREFIX_STATUS}/${REGION}/${RACK}/${HOSTID}/${SERVICENAME} | grep "service:")
+
+		if [ ${service_state_failures} -ge ${MAX_SERVICE_STATE_FAILURES} ]
+		then
+			logger -i "charkyd_agent: ERROR: Skipping service:\"${SERVICENAME}\", too many failures!"
+			# return from shell function
+			return
+		fi
+			
                 # I should have an if here, if scheduler, or if monitor do it a little differnt
                 # This should include starting a lease for the status of the service.
                 # a seperate non node lease.
@@ -268,6 +313,7 @@ service_state_case()
                 	started|START|start|STARTED|running)
                         	if [ "$(systemctl is-active ${SERVICENAME})" != 'active' ];
                         	then
+					logger -i "charkyd_agent: Attempting \"${DESIRED_SERVICE_STATE}\" of service:\"${SERVICENAME}\"."
                                 	restart_service
                         	fi
                 		;;
@@ -302,7 +348,7 @@ service_state_case()
                 	*)
                         	logger -i "charkyd_agent: WARNING Scheduled service:\"${SERVICENAME}\", unknown service state:\"${DESIRED_SERVICE_STATE}\""
                 		;;
-                # A migrate using CRIU option would be cool.
+                # A migrate using CRIU option would be cool
 
                 # after changes we should resubmit basics on core and mem count. Although, this is somewhat outside the scpoe
                 # and should be done by the application per say or nagios, icinga, or tick stack metrics. Lets not
@@ -312,22 +358,39 @@ service_state_case()
 
 launch_reaper_task()
 {
+	counter=0
 	while /bin/true
 	do
 	# This shoiuld launch a simple sub proccess or script that
 	# checks that all scheduled tasks for thjis node are in the
 	# desired state every x seconds.
         # This should make use of the service_state_case
-		logger -i "charkyd_agent: ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID} | grep -e \"servicename:\" -e \"state:\""
+	#	logger -i "charkyd_agent: ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID} | grep -e \"servicename:\" -e \"state:\""
+		logger -i "charkyd_agent: Verifying state of scheduled services via reaper task."
 	        ${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID} | grep -e "servicename:" -e "state:" | while read -r line; do
-			logger -i "charkyd_agent: Verifying state of scheduled services via reaper task."
                 	DESIRED_SERVICE_STATE=$(echo ${line} | sed 's/.*state://' | cut -d "," -f1)
                 	SERVICENAME=$(echo ${line} | sed 's/.*servicename://' | cut -d "," -f1)
+                	service_state_case
 
-                	# Run desired action for service
-          	      	service_state_case
        		done
+                # Check if a scheduler is currently running and if not start one on this node.
+                if [ ${counter} -eq 1 ]
+                then
+                       active_scheduler_count=$(${ETCDCTL_BIN} --endpoints=${ETCD_ENDPOINTS} get --prefix ${PREFIX_STATE}/${REGION}/${RACK}/${HOSTID} | grep "servicename:${SCHEDULER_SERVICE_NAME}" | grep "state:started"| wc -l)
+                       if [ ${active_scheduler_count} -ge 1 ]
+                       then
+                              logger -i "charkyd_agent: ${active_scheduler_count} scheduler services reported via reaper task."
+                       else
+                              logger -i "charkyd_agent: WARN: No scheduler services reported via reaper task! Starting..."
+                              start_scheduler_service
+                       fi
+                elif [ ${counter} -eq ${SCHEDULER_STATE_CHECK} ]
+                then
+                       counter=0
+                fi
+
 		sleep ${REAPER_SLEEP}
+                counter=$(( ${counter} + 1 ))
 	done
 }
 
@@ -347,8 +410,6 @@ else
         	watch_node_tasks
         fi
 fi
-
-# Check if a scheduler is currently running and if not start one on a randome node.
 
 # Notify systemd that we are ready
 systemd-notify --ready --status="charkyd now watching for services to run"
@@ -386,6 +447,7 @@ do
 	# something.
 	DESIRED_SERVICE_STATE=$(echo ${wline} | sed 's/.*state://' | cut -d "," -f1)
 	SERVICENAME=$(echo ${wline} | sed 's/.*servicename://' | cut -d "," -f1)
+	SERVICE_NAME_ORIG=${SERVICENAME}
 	
 	logger -i "charkyd_agent: Service state change detected in ${WATCH_LOG}."
 
