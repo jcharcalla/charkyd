@@ -244,6 +244,8 @@ do
 	echo ${SERVICE_STATUS}
 	if [ ${SERVICE_STATUS} == "deploy" ]
 	then
+		# Maybe we should have the random sleep interval here, we don't always want 
+		# a single node taking all the jobs
 		NEWLINE=$(echo ${line} | sed "s/schedulernode:none/schedulernode:${HOSTID}/g")
 		NEWLINE=$(echo ${NEWLINE} | sed "s/servicestatus:deploy/servicestatus:acknowledged/g")
 		#NEWLINE="${NEWLINE},schedulerstatus:acknowledged"
